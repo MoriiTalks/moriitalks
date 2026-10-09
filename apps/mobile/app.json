@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "MoriiTalks",
+    "slug": "moriitalks",
+    "version": "0.1.0",
+    "scheme": "moriitalks",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/morii-icon.png",
+    "ios": {
+      "bundleIdentifier": "com.moriitalks.app",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.moriitalks.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/morii-icon.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true }
+  }
+}

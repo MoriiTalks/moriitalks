@@ -1,0 +1,10 @@
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "semi": true,
+  "plugins": ["prettier-plugin-tailwindcss"],
+  "tailwindStylesheet": "./apps/mobile/global.css",
+  "tailwindAttributes": ["contentContainerClassName"],
+  "tailwindFunctions": ["useResolveClassNames"]
+}

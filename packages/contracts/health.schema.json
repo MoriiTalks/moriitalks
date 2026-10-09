@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoriiTalks health response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "service"],
+  "properties": {
+    "status": { "const": "ok" },
+    "service": { "const": "moriitalks-api" }
+  }
+}

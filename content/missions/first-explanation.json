@@ -1,0 +1,26 @@
+{
+  "id": "first-explanation",
+  "skill": "idea-and-reason",
+  "locales": {
+    "id": {
+      "title": "Ceritakan hal yang kamu suka",
+      "goal": "Mulai dengan satu ide dan satu alasan.",
+      "example": "Aku suka menggambar karena bisa membuat tokoh dari imajinasiku.",
+      "exampleNote": "Topiknya menggambar. Alasannya membuat tokoh dari imajinasi.",
+      "prompt": "Pilih sesuatu yang kamu suka, lalu jelaskan alasannya dengan suara lantang.",
+      "starter": "Aku suka … karena …",
+      "retry": "Apakah alasanmu sudah terdengar? Coba ulangi kalimatmu dengan kata karena. Lalu tambahkan satu contoh jika kamu ingin.",
+      "transfer": "Lain kali, coba jelaskan hal berbeda kepada orang yang kamu percaya: satu ide, satu alasan."
+    },
+    "en": {
+      "title": "Share something you like",
+      "goal": "Start with one idea and one reason.",
+      "example": "I like drawing because I can create characters from my imagination.",
+      "exampleNote": "The topic is drawing. The reason is creating imagined characters.",
+      "prompt": "Choose something you like, then explain your reason out loud.",
+      "starter": "I like … because …",
+      "retry": "Did you include your reason? Try saying your sentence again with because. Add one example if you want to.",
+      "transfer": "Next time, explain something different to someone you trust: one idea, one reason."
+    }
+  }
+}

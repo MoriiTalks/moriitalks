@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+bin/
+coverage/
+apps/mobile/android/
+apps/mobile/ios/
+pnpm-lock.yaml
+expo-env.d.ts
+docs/
+**/*.md
+apps/mobile/src/uniwind-types.d.ts

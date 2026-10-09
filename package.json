@@ -1,0 +1,37 @@
+{
+  "name": "moriitalks",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24.21.0 <25"
+  },
+  "scripts": {
+    "dev": "pnpm dev:mobile",
+    "dev:mobile": "pnpm --filter @moriitalks/mobile start",
+    "dev:web": "pnpm --filter @moriitalks/mobile web",
+    "dev:android": "pnpm --filter @moriitalks/mobile android",
+    "dev:ios": "pnpm --filter @moriitalks/mobile ios",
+    "dev:api": "go -C services/api run ./cmd/api",
+    "check:mobile": "pnpm --filter @moriitalks/mobile typecheck",
+    "lint": "pnpm --filter @moriitalks/mobile prepare:styles && eslint . --max-warnings 0",
+    "lint:fix": "pnpm --filter @moriitalks/mobile prepare:styles && eslint . --fix",
+    "check": "pnpm format:check && pnpm lint && pnpm check:mobile && pnpm check:api && pnpm vet:api",
+    "check:api": "go -C services/api test ./...",
+    "vet:api": "go -C services/api vet ./...",
+    "export:mobile": "pnpm --filter @moriitalks/mobile export:all",
+    "format": "prettier --write . && pnpm format:api",
+    "format:api": "go -C services/api fmt ./...",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "3.9.9",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "eslint": "9.39.5",
+    "@eslint/js": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "typescript-eslint": "8.71.1",
+    "typescript": "~6.0.3"
+  }
+}
