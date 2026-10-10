@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/MoriiTalks/moriitalks/services/api/internal/httpapi"
+	"github.com/MoriiTalks/moriitalks/services/api/internal/voice"
 )
 
 func main() {
@@ -20,18 +21,23 @@ func main() {
 	}
 }
 
+// run owns the HTTP server and voice lab lifecycle.
 func run() error {
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
+	voiceConfig, err := voice.ConfigFromEnv()
+	if err != nil {
+		return err
+	}
+	lab := voice.NewServer(voiceConfig)
+	defer lab.Close()
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewHandler(),
+		Handler:           httpapi.NewHandlerWithVoice(lab),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -53,6 +59,8 @@ func run() error {
 	case <-ctx.Done():
 		stop()
 		slog.Info("API shutting down")
+		// WebSocket connections need explicit closure before HTTP shutdown.
+		lab.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {

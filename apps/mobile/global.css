@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'uniwind';
 
+/* Shared color tokens keep child-facing screens visually consistent. */
 @theme {
   --color-cream: #fffdf6;
   --color-ink: #203e38;

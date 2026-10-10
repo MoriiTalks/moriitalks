@@ -1,3 +1,4 @@
+// Shared text styles give headings and titles semantic header roles.
 import type { PropsWithChildren } from 'react';
 import { Text } from 'react-native';
 

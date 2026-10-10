@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "liveEnabled": false,
+  "maxSessionSeconds": 300,
+  "maxTurnSeconds": 30,
+  "maxTurns": 8
+}

@@ -1,128 +1,141 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 
 import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { BackButton } from '@/components/navigation';
-import { Eyebrow, Heading, Note, Paragraph, Title } from '@/components/typography';
+import { Eyebrow, Note, Paragraph, Title } from '@/components/typography';
 import { firstMission } from '@/features/learning/mission';
 import { useApp } from '@/state/app-context';
 
+type PracticeStep = 0 | 1 | 2 | 3;
+
+const actionLabels = {
+  0: { id: 'Sekarang giliranku', en: 'My turn' },
+  1: { id: 'Aku sudah mencoba', en: 'I’ve tried it' },
+  2: { id: 'Sudah mencoba lagi', en: 'I tried again' },
+  3: { id: 'Lihat latihan hari ini', en: 'See today’s practice' },
+};
+
+const secondaryLabels = {
+  0: { id: 'Petunjuk', en: 'Hint' },
+  1: { id: 'Contoh', en: 'Example' },
+  2: { id: 'Kalimatku', en: 'My sentence' },
+  3: { id: 'Beranda', en: 'Home' },
+};
+
+// Guides independent practice and records the learner's own report, without capturing or assessing speech.
 export function PracticeScreen() {
-  const [step, setStep] = useState<0 | 1 | 2 | 3>(0);
+  const [step, setStep] = useState<PracticeStep>(0);
+  const [showHelp, setShowHelp] = useState(false);
   const { locale, completeMission } = useApp();
+  const { height } = useWindowDimensions();
   const id = locale === 'id';
   const mission = firstMission.locales[locale];
 
-  function finish() {
-    completeMission(firstMission.id);
-    setStep(3);
+  function changeStep(nextStep: PracticeStep) {
+    setShowHelp(false);
+    setStep(nextStep);
+  }
+
+  function next() {
+    switch (step) {
+      case 0:
+        changeStep(1);
+        break;
+      case 1:
+        changeStep(2);
+        break;
+      case 2:
+        completeMission(firstMission.id);
+        changeStep(3);
+        break;
+      case 3:
+        router.replace('/progress');
+        break;
+    }
+  }
+
+  function secondary() {
+    switch (step) {
+      case 0:
+        setShowHelp(!showHelp);
+        break;
+      case 1:
+        changeStep(0);
+        break;
+      case 2:
+        changeStep(1);
+        break;
+      case 3:
+        router.replace('/');
+        break;
+    }
   }
 
   return (
-    <Screen>
-      <BackButton />
-      <Eyebrow>{id ? 'LATIHAN MANDIRI' : 'INDEPENDENT PRACTICE'}</Eyebrow>
-      <Morii pose={step === 1 ? 'listen' : 'wave'} size={190} />
+    <Screen footer={<Button onPress={next}>{actionLabels[step][locale]}</Button>}>
+      <View className="gap-4">
+        <View className="flex-row flex-wrap items-center justify-between gap-2">
+          <BackButton />
+          {step < 3 && <Eyebrow>{`${String(step + 1)} / 3`}</Eyebrow>}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={step === 0 ? { expanded: showHelp } : {}}
+            aria-expanded={step === 0 ? showHelp : undefined}
+            onPress={secondary}
+            className="min-h-12 justify-center rounded-xl px-3 active:opacity-80"
+          >
+            <Text className="text-base font-semibold text-teal">
+              {showHelp ? (id ? 'Tutup' : 'Close') : secondaryLabels[step][locale]}
+            </Text>
+          </Pressable>
+        </View>
+        <Morii pose={step === 1 ? 'listen' : 'wave'} size={height < 740 ? 200 : 270} />
+      </View>
       {step === 0 && (
         <>
-          <Heading>{mission.title}</Heading>
-          <Paragraph>{mission.goal}</Paragraph>
           <Card>
-            <Eyebrow>{id ? '1 / 3 · LIHAT CONTOH' : '1 / 3 · SEE AN EXAMPLE'}</Eyebrow>
-            <Title>{mission.example}</Title>
-            <Paragraph>{mission.exampleNote}</Paragraph>
+            <Title>{id ? 'Lihat contoh Morii.' : 'See Morii’s example.'}</Title>
+            <Text className="text-2xl leading-[31px] font-semibold text-ink">
+              {mission.example}
+            </Text>
           </Card>
-          <Button
-            onPress={() => {
-              setStep(1);
-            }}
-          >
-            {id ? 'Sekarang giliranku' : 'My turn'}
-          </Button>
+          {showHelp && <Paragraph>{mission.exampleNote}</Paragraph>}
         </>
       )}
       {step === 1 && (
-        <>
-          <Heading>{id ? 'Ceritakan versimu.' : 'Tell your own story.'}</Heading>
-          <Card>
-            <Eyebrow>{id ? '2 / 3 · COBA UCAPKAN' : '2 / 3 · SAY IT OUT LOUD'}</Eyebrow>
-            <Paragraph>{mission.prompt}</Paragraph>
-            <Title>{mission.starter}</Title>
-            <Note>
-              {id
-                ? 'Ucapkan sendiri atau bersama pendamping. Aplikasi tidak mendengarkan.'
-                : 'Practice on your own or with a trusted adult. The app is not listening.'}
-            </Note>
-          </Card>
-          <Button
-            onPress={() => {
-              setStep(2);
-            }}
-          >
-            {id ? 'Aku sudah mencoba' : 'I’ve tried it'}
-          </Button>
-          <Button
-            variant="secondary"
-            onPress={() => {
-              setStep(0);
-            }}
-          >
-            {id ? 'Lihat contoh lagi' : 'See the example again'}
-          </Button>
-        </>
+        <Card>
+          <Paragraph>{mission.prompt}</Paragraph>
+          <Text className="text-2xl leading-[31px] font-semibold text-ink">{mission.starter}</Text>
+          <Note>
+            {id ? 'Latihan mandiri, mikrofon mati.' : 'Practice on your own, microphone off.'}
+          </Note>
+        </Card>
       )}
       {step === 2 && (
-        <>
-          <Heading>{id ? 'Satu alasan membantu.' : 'A reason helps.'}</Heading>
-          <Card>
-            <Eyebrow>{id ? '3 / 3 · COBA LAGI' : '3 / 3 · TRY AGAIN'}</Eyebrow>
-            <Paragraph>{mission.retry}</Paragraph>
-            <Note>
-              {id
-                ? 'Ini panduan latihan, bukan penilaian atas ucapanmu.'
-                : 'This is a practice guide, not an assessment of your speech.'}
-            </Note>
-          </Card>
-          <Button onPress={finish}>
-            {id ? 'Sudah mencoba lagi · selesai' : 'I tried again · finish'}
-          </Button>
-          <Button
-            variant="secondary"
-            onPress={() => {
-              setStep(1);
-            }}
-          >
-            {id ? 'Kembali ke kalimatku' : 'Back to my sentence'}
-          </Button>
-        </>
+        <Card>
+          <Title>{id ? 'Satu alasan membantu.' : 'A reason helps.'}</Title>
+          <Paragraph>{mission.retry}</Paragraph>
+          <Note>
+            {id
+              ? 'Panduan latihan, bukan penilaian ucapanmu.'
+              : 'A practice guide, not a speech assessment.'}
+          </Note>
+        </Card>
       )}
       {step === 3 && (
         <>
-          <Heading>{id ? 'Latihanmu sudah dicatat.' : 'Your practice is marked complete.'}</Heading>
+          <Title>{id ? 'Latihanmu sudah dicatat.' : 'Your practice is marked complete.'}</Title>
           <Paragraph>{mission.transfer}</Paragraph>
           <Note>
             {id
-              ? 'Catatan ini tersimpan selama aplikasi terbuka. Kemampuan berbicara belum dinilai.'
-              : 'This note lasts while the app is open. Speaking skill has not been assessed.'}
+              ? 'Dicatat untuk sesi ini, kemampuan berbicara belum dinilai.'
+              : 'Saved for this session, speaking skill has not been assessed.'}
           </Note>
-          <Button
-            onPress={() => {
-              router.replace('/progress');
-            }}
-          >
-            {id ? 'Lihat latihan hari ini' : 'See today’s practice'}
-          </Button>
-          <Button
-            variant="secondary"
-            onPress={() => {
-              router.replace('/');
-            }}
-          >
-            {id ? 'Kembali ke beranda' : 'Go home'}
-          </Button>
         </>
       )}
     </Screen>

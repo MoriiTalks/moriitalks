@@ -8,6 +8,7 @@ const sources = {
   listen,
 };
 
+// Decorative mascot artwork, surrounding screen text conveys the speaking or listening state.
 export function Morii({
   pose = 'wave',
   size = 260,

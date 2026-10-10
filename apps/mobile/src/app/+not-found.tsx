@@ -5,6 +5,7 @@ import { Screen } from '@/components/screen';
 import { Heading, Paragraph } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
+// Gives unavailable routes a localized path back to the home screen.
 export default function NotFoundScreen() {
   const { locale } = useApp();
   return (

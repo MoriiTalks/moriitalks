@@ -7,6 +7,7 @@ import { useResolveClassNames } from 'uniwind';
 
 import { AppProvider } from '@/state/app-context';
 
+// Provides shared in-memory state and safe-area context for every Expo route.
 export default function RootLayout() {
   const contentStyle = useResolveClassNames('bg-cream');
 

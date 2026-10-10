@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { useApp } from '@/state/app-context';
 
+// Direct links may have no navigation history, so returning home is the fallback.
 export function BackButton() {
   const { locale } = useApp();
 
@@ -25,6 +26,7 @@ export function BackButton() {
   );
 }
 
+// Main-section tabs replace the current route to avoid stacking repeated section visits.
 export function Navigation() {
   const pathname = usePathname();
   const { locale } = useApp();

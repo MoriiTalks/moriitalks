@@ -19,7 +19,19 @@
       "output": "static",
       "favicon": "./assets/morii-icon.png"
     },
-    "plugins": ["expo-router"],
-    "experiments": { "typedRoutes": true }
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "MoriiTalks uses your microphone only when you start a voice turn.",
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

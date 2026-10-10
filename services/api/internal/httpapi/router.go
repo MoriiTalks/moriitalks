@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/MoriiTalks/moriitalks/services/api/internal/voice"
 )
 
 type healthResponse struct {
@@ -10,9 +12,18 @@ type healthResponse struct {
 	Service string `json:"service"`
 }
 
+// NewHandler serves the health endpoint without registering the voice lab.
 func NewHandler() http.Handler {
+	return NewHandlerWithVoice(nil)
+}
+
+// NewHandlerWithVoice adds voice routes when a lab server is supplied.
+func NewHandlerWithVoice(lab *voice.Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
+	if lab != nil {
+		lab.Register(mux)
+	}
 	return mux
 }
 

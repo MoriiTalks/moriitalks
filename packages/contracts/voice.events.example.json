@@ -1,0 +1,55 @@
+[
+  {
+    "version": 1,
+    "sequence": 1,
+    "type": "session.ready",
+    "sessionId": "preview-session",
+    "kind": "preview",
+    "limits": { "maxSessionSeconds": 300, "maxTurnSeconds": 30, "maxTurns": 8 }
+  },
+  {
+    "version": 1,
+    "sequence": 2,
+    "type": "transcript",
+    "turnId": 1,
+    "text": "Aku suka menggambar.",
+    "final": true
+  },
+  { "version": 1, "sequence": 3, "type": "turn.state", "turnId": 1, "state": "thinking" },
+  {
+    "version": 1,
+    "sequence": 4,
+    "type": "turn.response",
+    "turnId": 1,
+    "text": "Tambahkan satu alasan.",
+    "source": "script"
+  },
+  { "version": 1, "sequence": 5, "type": "audio.start", "turnId": 1, "format": "mp3" },
+  { "version": 1, "sequence": 6, "type": "audio.end", "turnId": 1, "bytes": 128 },
+  {
+    "version": 1,
+    "sequence": 7,
+    "type": "turn.metrics",
+    "turnId": 1,
+    "sttMs": 0,
+    "coachMs": 0,
+    "ttsMs": 0,
+    "totalMs": 0,
+    "audioSeconds": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "ttsCharacters": 0
+  },
+  { "version": 1, "sequence": 8, "type": "turn.cancelled", "turnId": 1 },
+  {
+    "version": 1,
+    "sequence": 9,
+    "type": "error",
+    "code": "provider",
+    "message": "Please try again.",
+    "recoverable": true,
+    "turnId": 1
+  },
+  { "version": 1, "sequence": 10, "type": "session.closed", "reason": "client" },
+  { "version": 1, "sequence": 11, "type": "turn.audio.accepted", "turnId": 1, "bytes": 3200 }
+]

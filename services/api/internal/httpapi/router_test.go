@@ -9,6 +9,7 @@ import (
 )
 
 func TestHealthMatchesContractFixture(t *testing.T) {
+	// The shared fixture keeps the handler aligned with the client contract.
 	fixture, err := os.ReadFile("../../../../packages/contracts/health.example.json")
 	if err != nil {
 		t.Fatal(err)

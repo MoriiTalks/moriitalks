@@ -1,76 +1,100 @@
 import { useState } from 'react';
+import { Text, View, useWindowDimensions } from 'react-native';
 
-import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { Screen } from '@/components/screen';
+import { Morii } from '@/components/morii';
 import { BackButton } from '@/components/navigation';
-import { Eyebrow, Heading, Note, Paragraph } from '@/components/typography';
+import { Screen } from '@/components/screen';
+import { Eyebrow, Paragraph, Title } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
-type Topic = 'hobby' | 'day';
+import { sessionCopy } from './session-copy';
+import { useVoiceSession } from './use-voice-session';
+import { previewExample } from './voice-runtime';
+import type { PreviewExample } from './voice-runtime';
 
-const demo = {
-  id: {
-    greeting: 'Hai! Ingin cerita tentang apa?',
-    hobby: 'Hal apa yang paling kamu suka dari hobimu? Coba ceritakan satu contoh.',
-    day: 'Pilih satu hal yang terjadi hari ini. Apa yang membuatnya menarik?',
-  },
-  en: {
-    greeting: 'Hi! What would you like to talk about?',
-    hobby: 'What do you enjoy most about your hobby? Tell me one example.',
-    day: 'Choose one thing that happened today. What made it interesting?',
-  },
-};
-
+// Runs scripted conversation examples without microphone capture or cloud requests.
 export function TalkScreen() {
-  const [topic, setTopic] = useState<Topic | null>(null);
   const { locale } = useApp();
-  const id = locale === 'id';
-  const copy = demo[locale];
+  const { height, width } = useWindowDimensions();
+  const [step, setStep] = useState<'prompt' | 'example' | 'feedback'>('prompt');
+  const [exampleKind, setExampleKind] = useState<PreviewExample>('reason');
+  const [showTranscript, setShowTranscript] = useState(false);
+  const session = useVoiceSession({ locale, mode: 'practice', topic: 'hobby' });
+  const copy = sessionCopy[locale];
+  const example = previewExample(locale, exampleKind);
+  const speaking = session.status === 'speaking';
+  const moriiSize = Math.min(height < 740 ? 200 : 280, width - 64);
+
+  function pressPrimary() {
+    if (speaking) {
+      session.interrupt();
+    } else if (step === 'example') {
+      setStep('feedback');
+      void session.startPreview(exampleKind);
+    } else {
+      if (step === 'feedback') {
+        session.interrupt();
+        setExampleKind((current) => (current === 'reason' ? 'brief' : 'reason'));
+      }
+      setShowTranscript(false);
+      setStep('example');
+    }
+  }
+
+  const primaryLabel = speaking
+    ? copy.interrupt
+    : step === 'example'
+      ? copy.showFeedback
+      : step === 'feedback'
+        ? copy.nextExample
+        : copy.showExample;
+
   return (
-    <Screen>
-      <BackButton />
-      <Eyebrow>{id ? 'DEMO OBROLAN' : 'CHAT DEMO'}</Eyebrow>
-      <Heading>{id ? 'Ada cerita apa?' : 'What’s your story?'}</Heading>
-      <Morii pose="listen" size={260} />
-      <Card>
-        <Eyebrow>MORII</Eyebrow>
-        <Paragraph>{topic ? copy[topic] : copy.greeting}</Paragraph>
-      </Card>
-      {!topic ? (
-        <>
-          <Button
-            onPress={() => {
-              setTopic('hobby');
-            }}
-          >
-            {id ? 'Tentang hobiku' : 'About my hobby'}
-          </Button>
-          <Button
-            variant="secondary"
-            onPress={() => {
-              setTopic('day');
-            }}
-          >
-            {id ? 'Tentang hariku' : 'About my day'}
-          </Button>
-        </>
-      ) : (
-        <Button
-          variant="secondary"
-          onPress={() => {
-            setTopic(null);
-          }}
+    <Screen footer={<Button onPress={pressPrimary}>{primaryLabel}</Button>}>
+      <View className="flex-row flex-wrap items-center justify-between gap-3">
+        <BackButton />
+        <Title>{copy.title}</Title>
+      </View>
+      <View className="gap-3">
+        <Morii size={moriiSize} />
+        <Text
+          accessibilityLiveRegion="polite"
+          className="text-center text-sm leading-5 font-semibold text-teal"
         >
-          {id ? 'Pilih topik lain' : 'Choose another topic'}
-        </Button>
-      )}
-      <Note>
-        {id
-          ? 'Demo tertulis, belum menggunakan suara atau AI.'
-          : 'A written demo, without voice or AI yet.'}
-      </Note>
+          {speaking ? copy.status.speaking : copy.preview}
+        </Text>
+      </View>
+      <Card>
+        {step === 'example' && <Eyebrow>{copy.sample}</Eyebrow>}
+        <Paragraph>
+          {step === 'prompt'
+            ? copy.prompts.hobby
+            : step === 'example'
+              ? example.transcript
+              : session.response || example.response}
+        </Paragraph>
+        {step === 'feedback' && (
+          <>
+            <Button
+              expanded={showTranscript}
+              variant="secondary"
+              onPress={() => {
+                setShowTranscript((shown) => !shown);
+              }}
+            >
+              {showTranscript ? copy.hideExample : copy.showExample}
+            </Button>
+            {showTranscript && (
+              <View className="gap-2">
+                <Eyebrow>{copy.sample}</Eyebrow>
+                <Paragraph>{example.transcript}</Paragraph>
+              </View>
+            )}
+          </>
+        )}
+      </Card>
     </Screen>
   );
 }

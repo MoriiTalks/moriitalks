@@ -1,0 +1,563 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "config": {
+      "type": "object",
+      "properties": {
+        "maxSessionSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "maxTurnSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "liveEnabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["maxSessionSeconds", "maxTurnSeconds", "maxTurns", "version", "liveEnabled"],
+      "additionalProperties": false
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "session.start"
+            },
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "locale": {
+              "type": "string",
+              "enum": ["id", "en"]
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["talk", "practice"]
+            },
+            "topic": {
+              "type": "string",
+              "enum": ["hobby", "day", "ideas"]
+            },
+            "adultConfirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": ["type", "version", "locale", "mode", "topic", "adultConfirmed"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "turn.start"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "sampleRate": {
+              "type": "integer",
+              "minimum": 8000,
+              "maximum": 48000
+            },
+            "channels": {
+              "type": "number",
+              "const": 1
+            },
+            "encoding": {
+              "type": "string",
+              "const": "pcm_s16le"
+            }
+          },
+          "required": ["type", "turnId", "sampleRate", "channels", "encoding"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "turn.commit"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            }
+          },
+          "required": ["type", "turnId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "turn.cancel"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            }
+          },
+          "required": ["type", "turnId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "demo.turn"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "example": {
+              "type": "string",
+              "enum": ["reason", "brief"]
+            }
+          },
+          "required": ["type", "turnId", "example"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "session.close"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "session.ready"
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "kind": {
+              "type": "string",
+              "enum": ["preview", "live"]
+            },
+            "limits": {
+              "type": "object",
+              "properties": {
+                "maxSessionSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300
+                },
+                "maxTurnSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 30
+                },
+                "maxTurns": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                }
+              },
+              "required": ["maxSessionSeconds", "maxTurnSeconds", "maxTurns"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["version", "sequence", "type", "sessionId", "kind", "limits"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "transcript"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "final": {
+              "type": "boolean"
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "text", "final"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.state"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["listening", "thinking", "speaking", "ready"]
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "state"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.response"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "source": {
+              "type": "string",
+              "enum": ["script", "ai"]
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "text", "source"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "audio.start"
+            },
+            "format": {
+              "type": "string",
+              "const": "mp3"
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "format"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "audio.end"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 524288
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "bytes"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.metrics"
+            },
+            "sttMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "coachMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "ttsMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "totalMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "audioSeconds": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "ttsCharacters": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "turnId",
+            "type",
+            "sttMs",
+            "coachMs",
+            "ttsMs",
+            "totalMs",
+            "audioSeconds",
+            "inputTokens",
+            "outputTokens",
+            "ttsCharacters"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.cancelled"
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.audio.accepted"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2880000
+            }
+          },
+          "required": ["version", "sequence", "turnId", "type", "bytes"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "error"
+            },
+            "code": {
+              "type": "string",
+              "enum": ["invalid_message", "unavailable", "limit", "provider", "unsafe", "timeout"]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "recoverable": {
+              "type": "boolean"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            }
+          },
+          "required": ["version", "sequence", "type", "code", "message", "recoverable"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "session.closed"
+            },
+            "reason": {
+              "type": "string",
+              "enum": ["client", "timeout", "limit"]
+            }
+          },
+          "required": ["version", "sequence", "type", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": ["config", "command", "event"],
+  "additionalProperties": false
+}

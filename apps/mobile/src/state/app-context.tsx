@@ -11,6 +11,7 @@ interface AppState {
 
 const AppContext = createContext<AppState | null>(null);
 
+// Keeps locale and self-reported practice completion in memory until the app restarts.
 export function AppProvider({ children }: PropsWithChildren) {
   const [locale, setLocale] = useState<Locale>('id');
   const [completedMissionIds, setCompletedMissionIds] = useState<string[]>([]);

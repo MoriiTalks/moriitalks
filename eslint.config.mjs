@@ -4,8 +4,10 @@ import prettier from 'eslint-config-prettier';
 import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
-const sourceFiles = ['apps/mobile/src/**/*.{ts,tsx}'];
+// Type-aware rules cover owned source, generated files are excluded below.
+const sourceFiles = ['apps/mobile/src/**/*.{ts,tsx}', 'packages/contracts/*.ts'];
 
+// Enforce the repository's comment punctuation without relying on editor-specific settings.
 const comments = {
   rules: {
     'no-semicolon': {
@@ -41,7 +43,7 @@ export default defineConfig(
     '**/uniwind-types.d.ts',
   ]),
   {
-    files: ['**/*.{js,mjs,ts,tsx}'],
+    files: ['**/*.{js,cjs,mjs,ts,tsx}'],
     plugins: { comments },
     rules: { 'comments/no-semicolon': 'error' },
   },
