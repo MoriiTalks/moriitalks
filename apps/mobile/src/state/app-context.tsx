@@ -10,6 +10,8 @@ import {
 import { initialProgressState, progressReducer } from './progress-model';
 import type { Locale, ProgressStorageStatus } from './progress-model';
 import { loadProgress, saveProgress } from './progress-storage';
+import { deviceTimeZone } from './practice-activity';
+import type { PracticeActivity } from './practice-activity';
 
 export type { Locale } from './progress-model';
 
@@ -17,6 +19,7 @@ interface AppState {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   completedMissionIds: readonly string[];
+  practiceActivity: PracticeActivity | undefined;
   completeMission: (missionId: string) => void;
   resetPracticeProgress: () => void;
   progressStorageStatus: ProgressStorageStatus;
@@ -62,7 +65,11 @@ export function AppProvider({ children }: PropsWithChildren) {
   }
 
   function completeMission(missionId: string) {
-    dispatch({ type: 'complete', lessonId: missionId });
+    dispatch({
+      type: 'complete',
+      lessonId: missionId,
+      practice: { at: Date.now(), timeZone: deviceTimeZone() },
+    });
   }
 
   function resetPracticeProgress() {
@@ -75,6 +82,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         locale: progress.locale,
         setLocale,
         completedMissionIds: progress.completions[progress.locale],
+        practiceActivity: progress.activity,
         completeMission,
         resetPracticeProgress,
         progressStorageStatus: storageStatus,

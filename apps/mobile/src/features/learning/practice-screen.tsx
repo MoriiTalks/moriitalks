@@ -82,19 +82,24 @@ export function PracticeScreen() {
     >
       <View className="flex-row flex-wrap items-center justify-between gap-3">
         <Heading>{id ? 'Latihan' : 'Practice'}</Heading>
-        <View
+        <Pressable
+          accessibilityRole="button"
           accessibilityLabel={
             id
-              ? `${String(completedCount)} dari ${String(learningLessons.length)} latihan sudah dicoba`
-              : `${String(completedCount)} of ${String(learningLessons.length)} practices completed`
+              ? `Catatan latihan, ${String(completedCount)} dari ${String(learningLessons.length)} latihan sudah dicoba`
+              : `Practice record, ${String(completedCount)} of ${String(learningLessons.length)} practices completed`
           }
-          className="min-h-11 flex-row items-center gap-2 rounded-full bg-mint px-4"
+          onPress={() => {
+            router.push('/progress');
+          }}
+          className="min-h-12 flex-row items-center gap-2 rounded-full bg-mint px-4 active:bg-mint-strong"
         >
           <Icon name="check" size={18} />
           <Text className="text-sm font-semibold text-teal">
             {String(completedCount)} / {String(learningLessons.length)}
           </Text>
-        </View>
+          <Icon name="arrow" size={16} />
+        </Pressable>
       </View>
       {loading ? (
         <View className="items-center gap-4 py-12">

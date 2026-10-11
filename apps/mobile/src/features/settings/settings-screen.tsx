@@ -45,6 +45,14 @@ export function SettingsScreen() {
           </Button>
         </View>
       </Card>
+      <Button
+        variant="secondary"
+        onPress={() => {
+          router.push('/progress');
+        }}
+      >
+        {id ? 'Catatan latihan' : 'Practice record'}
+      </Button>
       <Card>
         <Title>{id ? 'Tentang versi ini' : 'About this version'}</Title>
         <Text className="text-sm leading-6 text-muted">
@@ -66,8 +74,8 @@ export function SettingsScreen() {
                   ? 'Penyimpanan belum tersedia. Catatan baru hanya berlaku selama aplikasi terbuka.'
                   : 'Storage is unavailable. New practice records last for this app session.'
                 : id
-                  ? 'Bahasa dan latihan yang selesai tersimpan di perangkat, terpisah untuk setiap bahasa.'
-                  : 'Language and completed lessons stay on this device, separately for each language.'}
+                  ? 'Pelajaran tersimpan terpisah untuk Indonesia dan Inggris. Hari latihan dihitung bersama, hanya di perangkat ini.'
+                  : 'Lesson completion is separate for Indonesian and English. Practice days are shared, only on this device.'}
         </Note>
         <Text className="text-sm leading-6 text-muted">
           {id
@@ -103,8 +111,8 @@ export function SettingsScreen() {
       >
         <Note>
           {id
-            ? 'Catatan latihan Indonesia dan Inggris di perangkat ini akan dihapus. Bahasa pilihanmu tetap sama.'
-            : 'Indonesian and English practice records on this device will be cleared. Your language preference stays the same.'}
+            ? 'Catatan pelajaran Indonesia dan Inggris serta hari latihan di perangkat ini akan dihapus. Bahasa pilihanmu tetap sama.'
+            : 'Indonesian and English lesson records and practice days on this device will be cleared. Your language preference stays the same.'}
         </Note>
         <Button
           onPress={() => {

@@ -476,10 +476,14 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
           <Button
             variant="secondary"
             onPress={() => {
-              changeStep('retry');
+              // A fresh replay includes both contexts before another completion is reported.
+              setPracticeIndex(0);
+              setSelfCheck(undefined);
+              setShowPracticeHint(false);
+              changeStep('speak');
             }}
           >
-            {id ? 'Coba sekali lagi' : 'Try once more'}
+            {id ? 'Ulangi praktik' : 'Repeat speaking practice'}
           </Button>
         </View>
       )}

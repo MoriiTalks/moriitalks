@@ -1,9 +1,12 @@
-// Stores only language and self-reported completion, never recordings, transcripts, or skill scores.
+// Stores language, self-reported completion, and practice dates, never audio or skill scores.
 import {
   findLesson,
   learningLessons,
 } from '../../../../content/missions/presentation-foundations.ts';
 import type { LearningLocale } from '../../../../content/missions/presentation-foundations.ts';
+
+import { decodePracticeActivity, practiceDate, recordPractice } from './practice-activity.ts';
+import type { PracticeActivity, PracticeMoment } from './practice-activity.ts';
 
 export type Locale = LearningLocale;
 export type ProgressStorageStatus = 'loading' | 'saving' | 'loaded' | 'unavailable';
@@ -12,6 +15,7 @@ export interface SavedProgress {
   version: 1;
   locale: Locale;
   completions: Record<Locale, readonly string[]>;
+  activity?: PracticeActivity;
 }
 
 export interface ProgressState {
@@ -20,12 +24,13 @@ export interface ProgressState {
   revision: number;
   localeChanged: boolean;
   progressReset: boolean;
+  pendingPractice: PracticeMoment | undefined;
   storageStatus: ProgressStorageStatus;
 }
 
 export type ProgressAction =
   | { type: 'locale'; locale: Locale }
-  | { type: 'complete'; lessonId: string }
+  | { type: 'complete'; lessonId: string; practice?: PracticeMoment }
   | { type: 'reset' }
   | { type: 'hydrate'; saved: SavedProgress | undefined; unavailable: boolean }
   | { type: 'storage'; revision: number; unavailable: boolean };
@@ -41,6 +46,7 @@ export function initialProgressState(): ProgressState {
     revision: 0,
     localeChanged: false,
     progressReset: false,
+    pendingPractice: undefined,
     storageStatus: 'loading',
   };
 }
@@ -88,7 +94,14 @@ export function decodeProgress(raw: string | null): SavedProgress | undefined {
     const id = knownCompletions(value['completions']['id']);
     const en = knownCompletions(value['completions']['en']);
     if (id === undefined || en === undefined) return undefined;
-    return { version: 1, locale: value['locale'], completions: { id, en } };
+    const activity = decodePracticeActivity(value['activity']);
+    if (value['activity'] !== undefined && activity === undefined) return undefined;
+    return {
+      version: 1,
+      locale: value['locale'],
+      completions: { id, en },
+      ...(activity === undefined ? {} : { activity }),
+    };
   } catch {
     return undefined;
   }
@@ -107,36 +120,65 @@ export function progressReducer(state: ProgressState, action: ProgressAction): P
     case 'complete': {
       const { locale, completions } = state.progress;
       const ids = completions[locale];
+      if (action.lessonId !== 'first-explanation' && !canStartLesson(action.lessonId, ids)) {
+        return state;
+      }
+      const completed = ids.includes(action.lessonId);
+      // Scripted legacy previews cannot count as completed speaking practice.
+      const practice = action.lessonId === 'first-explanation' ? undefined : action.practice;
+      const activity =
+        state.hydrated && practice
+          ? recordPractice(state.progress.activity, practice)
+          : state.progress.activity;
+      // Keep the latest early attempt transiently, hydration supplies its established time zone.
+      const pendingPractice =
+        !state.hydrated &&
+        practice &&
+        practiceDate(practice.at, practice.timeZone) !== undefined &&
+        (state.pendingPractice === undefined || practice.at > state.pendingPractice.at)
+          ? practice
+          : state.pendingPractice;
       if (
-        ids.includes(action.lessonId) ||
-        (action.lessonId !== 'first-explanation' && !canStartLesson(action.lessonId, ids))
+        completed &&
+        activity === state.progress.activity &&
+        pendingPractice === state.pendingPractice
       ) {
         return state;
       }
       return {
         ...state,
+        pendingPractice,
         revision: state.revision + 1,
         storageStatus: state.hydrated ? 'saving' : state.storageStatus,
         progress: {
           ...state.progress,
-          completions: { ...completions, [locale]: [...ids, action.lessonId] },
+          completions: completed
+            ? completions
+            : { ...completions, [locale]: [...ids, action.lessonId] },
+          ...(activity === undefined ? {} : { activity }),
         },
       };
     }
     case 'reset':
       return {
         ...state,
-        progress: { ...state.progress, completions: { id: [], en: [] } },
+        progress: { version: 1, locale: state.progress.locale, completions: { id: [], en: [] } },
         progressReset: true,
+        pendingPractice: undefined,
         revision: state.revision + 1,
         storageStatus: state.hydrated ? 'saving' : state.storageStatus,
       };
     case 'hydrate': {
       if (state.hydrated) return state;
       const saved = action.saved ?? emptyProgress();
+      const previousActivity = state.progressReset ? undefined : saved.activity;
+      const activity = state.pendingPractice
+        ? recordPractice(previousActivity, state.pendingPractice)
+        : previousActivity;
       return {
         ...state,
         hydrated: true,
+        pendingPractice: undefined,
         storageStatus:
           state.revision > 0 ? 'saving' : action.unavailable ? 'unavailable' : 'loaded',
         progress: {
@@ -148,6 +190,7 @@ export function progressReducer(state: ProgressState, action: ProgressAction): P
                 id: [...new Set([...saved.completions.id, ...state.progress.completions.id])],
                 en: [...new Set([...saved.completions.en, ...state.progress.completions.en])],
               },
+          ...(activity === undefined ? {} : { activity }),
         },
       };
     }

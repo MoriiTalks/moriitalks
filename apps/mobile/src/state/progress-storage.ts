@@ -6,7 +6,7 @@ import type { SavedProgress } from './progress-model';
 
 const storageKey = 'moriitalks.practice.v1';
 
-// A small versioned local record keeps progress available offline without collecting child data.
+// A small local record keeps progress and practice dates offline, nothing is uploaded.
 export async function loadProgress(): Promise<{
   saved: SavedProgress | undefined;
   unavailable: boolean;

@@ -211,3 +211,145 @@ void test('only the latest queued save can confirm or fail a pending mutation', 
   state = progressReducer(state, { type: 'storage', revision: state.revision, unavailable: false });
   assert.equal(state.storageStatus, 'loaded');
 });
+
+void test('old completion records do not invent practice dates', () => {
+  const saved = decodeProgress(
+    JSON.stringify({ ...emptyProgress(), completions: { id: ['clear-idea-1'], en: [] } }),
+  );
+  assert.ok(saved);
+  const state = progressReducer(initialProgressState(), {
+    type: 'hydrate',
+    saved,
+    unavailable: false,
+  });
+  assert.equal(state.progress.activity, undefined);
+  assert.deepEqual(state.progress.completions.id, ['clear-idea-1']);
+});
+
+void test('completed practice and replay share one daily record across languages', () => {
+  let state = progressReducer(initialProgressState(), {
+    type: 'hydrate',
+    saved: emptyProgress(),
+    unavailable: false,
+  });
+  const practice = { at: Date.parse('2026-10-11T16:59:00Z'), timeZone: 'Asia/Jakarta' };
+  state = progressReducer(state, { type: 'complete', lessonId: 'clear-idea-1', practice });
+  assert.deepEqual(state.progress.activity, {
+    timeZone: 'Asia/Jakarta',
+    days: ['2026-10-11'],
+    streakStart: '2026-10-11',
+  });
+  assert.equal(
+    progressReducer(state, { type: 'complete', lessonId: 'clear-idea-1', practice }),
+    state,
+  );
+  state = progressReducer(state, { type: 'locale', locale: 'en' });
+  state = progressReducer(state, { type: 'complete', lessonId: 'clear-idea-1', practice });
+  assert.deepEqual(state.progress.completions, { id: ['clear-idea-1'], en: ['clear-idea-1'] });
+  assert.deepEqual(state.progress.activity?.days, ['2026-10-11']);
+  const previousRevision = state.revision;
+  state = progressReducer(state, {
+    type: 'complete',
+    lessonId: 'clear-idea-1',
+    practice: { at: Date.parse('2026-10-11T17:00:00Z'), timeZone: 'America/New_York' },
+  });
+  assert.equal(state.revision, previousRevision + 1);
+  assert.equal(state.storageStatus, 'saving');
+  assert.deepEqual(state.progress.activity, {
+    timeZone: 'Asia/Jakarta',
+    days: ['2026-10-11', '2026-10-12'],
+    streakStart: '2026-10-11',
+  });
+  assert.deepEqual(state.progress.completions, { id: ['clear-idea-1'], en: ['clear-idea-1'] });
+});
+
+void test('unknown, locked, and scripted legacy missions cannot add practice days', () => {
+  const initial = progressReducer(initialProgressState(), {
+    type: 'hydrate',
+    saved: emptyProgress(),
+    unavailable: false,
+  });
+  const practice = { at: Date.parse('2026-10-11T05:00:00Z'), timeZone: 'Asia/Jakarta' };
+  for (const lessonId of ['unknown', 'clear-idea-2', 'presentation-practice-1']) {
+    assert.equal(progressReducer(initial, { type: 'complete', lessonId, practice }), initial);
+  }
+  const legacy = progressReducer(initial, {
+    type: 'complete',
+    lessonId: 'first-explanation',
+    practice,
+  });
+  assert.deepEqual(legacy.progress.completions.id, ['first-explanation']);
+  assert.equal(legacy.progress.activity, undefined);
+});
+
+void test('hydration records an early practice in the existing anchored time zone', () => {
+  const saved = {
+    ...emptyProgress(),
+    completions: { id: ['clear-idea-1'], en: [] },
+    activity: {
+      timeZone: 'America/New_York',
+      days: ['2026-10-10'],
+      streakStart: '2026-10-10',
+    },
+  };
+  let state = progressReducer(initialProgressState(), {
+    type: 'complete',
+    lessonId: 'clear-idea-1',
+    practice: { at: Date.parse('2026-10-12T00:30:00Z'), timeZone: 'Asia/Jakarta' },
+  });
+  state = progressReducer(state, { type: 'hydrate', saved, unavailable: false });
+  assert.deepEqual(state.progress.activity, {
+    timeZone: 'America/New_York',
+    days: ['2026-10-10', '2026-10-11'],
+    streakStart: '2026-10-10',
+  });
+  assert.equal(state.pendingPractice, undefined);
+  assert.equal(state.storageStatus, 'saving');
+});
+
+void test('reset clears practice days and prevents a late read from restoring them', () => {
+  const saved = {
+    ...emptyProgress(),
+    activity: {
+      timeZone: 'America/New_York',
+      days: ['2026-10-10'],
+      streakStart: '2026-10-10',
+    },
+  };
+  let state = progressReducer(initialProgressState(), { type: 'reset' });
+  state = progressReducer(state, {
+    type: 'complete',
+    lessonId: 'clear-idea-1',
+    practice: { at: Date.parse('2026-10-12T00:30:00Z'), timeZone: 'Asia/Jakarta' },
+  });
+  state = progressReducer(state, { type: 'hydrate', saved, unavailable: false });
+  assert.deepEqual(state.progress.activity, {
+    timeZone: 'Asia/Jakarta',
+    days: ['2026-10-12'],
+    streakStart: '2026-10-12',
+  });
+  state = progressReducer(state, { type: 'reset' });
+  assert.equal(state.progress.activity, undefined);
+  assert.deepEqual(state.progress.completions, { id: [], en: [] });
+});
+
+void test('activity round-trips without storing exact practice timestamps', () => {
+  let state = progressReducer(initialProgressState(), {
+    type: 'hydrate',
+    saved: emptyProgress(),
+    unavailable: false,
+  });
+  state = progressReducer(state, {
+    type: 'complete',
+    lessonId: 'clear-idea-1',
+    practice: { at: Date.parse('2026-10-11T05:00:00Z'), timeZone: 'Asia/Jakarta' },
+  });
+  const raw = JSON.stringify(state.progress);
+  assert.deepEqual(decodeProgress(raw), state.progress);
+  assert.ok(!raw.includes('"at":'));
+  assert.ok(!raw.includes('2026-10-11T'));
+  assert.equal(
+    decodeProgress(JSON.stringify({ ...state.progress, activity: { timeZone: 'invalid' } })),
+    undefined,
+  );
+});
