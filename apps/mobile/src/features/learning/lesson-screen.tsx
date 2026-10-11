@@ -332,8 +332,8 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
           {speech.state === 'unavailable' && (
             <Note>
               {id
-                ? 'Suara belum tersedia untuk bahasa ini. Kamu bisa membaca contoh atau mencoba memutarnya lagi.'
-                : 'Audio is not available for this language yet. You can read the example or try playing it again.'}
+                ? 'Contoh suara belum bisa diputar. Kamu bisa membaca contoh atau mencoba lagi.'
+                : 'The voice example could not play. You can read the example or try again.'}
             </Note>
           )}
           <Pressable

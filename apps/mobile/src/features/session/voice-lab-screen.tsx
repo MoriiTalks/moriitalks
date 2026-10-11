@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { router } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import type { VoiceMode, VoiceTopic } from '@contracts/voice';
 
@@ -160,6 +161,16 @@ export function VoiceLabScreen() {
           setSheet(null);
         }}
       >
+        <Button
+          variant="secondary"
+          onPress={() => {
+            setSheet(null);
+            session.end();
+            router.push('/device-check');
+          }}
+        >
+          {locale === 'id' ? 'Periksa audio perangkat' : 'Check device audio'}
+        </Button>
         <View className="flex-row gap-2">
           <View className="flex-1">
             <Button

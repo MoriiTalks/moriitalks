@@ -85,6 +85,14 @@ export function SettingsScreen() {
         <Button
           variant="secondary"
           onPress={() => {
+            router.push('/device-check');
+          }}
+        >
+          {id ? 'Periksa audio perangkat' : 'Check device audio'}
+        </Button>
+        <Button
+          variant="secondary"
+          onPress={() => {
             router.push('/voice-lab');
           }}
         >
