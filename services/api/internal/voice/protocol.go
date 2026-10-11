@@ -152,31 +152,35 @@ func foldJSONKey(key string) string {
 
 // event is the versioned server envelope. Pointers retain optional false and zero values.
 type event struct {
-	Version       int      `json:"version"`
-	Sequence      int      `json:"sequence"`
-	Type          string   `json:"type"`
-	SessionID     string   `json:"sessionId,omitempty"`
-	Kind          string   `json:"kind,omitempty"`
-	Limits        *Limits  `json:"limits,omitempty"`
-	TurnID        int      `json:"turnId,omitempty"`
-	Text          string   `json:"text,omitempty"`
-	Final         *bool    `json:"final,omitempty"`
-	State         string   `json:"state,omitempty"`
-	Source        string   `json:"source,omitempty"`
-	Format        string   `json:"format,omitempty"`
-	Bytes         int      `json:"bytes,omitempty"`
-	Code          string   `json:"code,omitempty"`
-	Message       string   `json:"message,omitempty"`
-	Recoverable   *bool    `json:"recoverable,omitempty"`
-	Reason        string   `json:"reason,omitempty"`
-	STTMs         *int64   `json:"sttMs,omitempty"`
-	CoachMs       *int64   `json:"coachMs,omitempty"`
-	TTSMs         *int64   `json:"ttsMs,omitempty"`
-	TotalMs       *int64   `json:"totalMs,omitempty"`
-	AudioSeconds  *float64 `json:"audioSeconds,omitempty"`
-	InputTokens   *int     `json:"inputTokens,omitempty"`
-	OutputTokens  *int     `json:"outputTokens,omitempty"`
-	TTSCharacters *int     `json:"ttsCharacters,omitempty"`
+	Version       int             `json:"version"`
+	Sequence      int             `json:"sequence"`
+	Type          string          `json:"type"`
+	SessionID     string          `json:"sessionId,omitempty"`
+	Kind          string          `json:"kind,omitempty"`
+	Limits        *Limits         `json:"limits,omitempty"`
+	TurnID        int             `json:"turnId,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	Final         *bool           `json:"final,omitempty"`
+	State         string          `json:"state,omitempty"`
+	Source        string          `json:"source,omitempty"`
+	Format        string          `json:"format,omitempty"`
+	Bytes         int             `json:"bytes,omitempty"`
+	Code          string          `json:"code,omitempty"`
+	Message       string          `json:"message,omitempty"`
+	Recoverable   *bool           `json:"recoverable,omitempty"`
+	Reason        string          `json:"reason,omitempty"`
+	STTMs         *int64          `json:"sttMs,omitempty"`
+	CoachMs       *int64          `json:"coachMs,omitempty"`
+	TTSMs         *int64          `json:"ttsMs,omitempty"`
+	TotalMs       *int64          `json:"totalMs,omitempty"`
+	AudioSeconds  *float64        `json:"audioSeconds,omitempty"`
+	InputTokens   *int            `json:"inputTokens,omitempty"`
+	OutputTokens  *int            `json:"outputTokens,omitempty"`
+	TTSCharacters *int            `json:"ttsCharacters,omitempty"`
+	Generation    *int            `json:"generation,omitempty"`
+	ResponseID    string          `json:"responseId,omitempty"`
+	Animation     string          `json:"animation,omitempty"`
+	Panel         json.RawMessage `json:"panel,omitempty"`
 }
 
 func pointer[T comparable](value T) *T { return &value }

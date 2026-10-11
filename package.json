@@ -16,7 +16,7 @@
     "start:api": "go -C services/api run ./cmd/api",
     "check:mobile": "pnpm --filter @moriitalks/mobile typecheck",
     "check:contracts": "pnpm --filter @moriitalks/contracts typecheck",
-    "contracts:generate": "pnpm --filter @moriitalks/contracts exec node export-schema.ts && prettier --write packages/contracts/voice.schema.json",
+    "contracts:generate": "pnpm --filter @moriitalks/contracts exec node export-schema.ts && prettier --write packages/contracts/*.schema.json services/api/internal/voice/harness_reply.schema.json",
     "test:contracts": "pnpm --filter @moriitalks/contracts test",
     "test:mobile": "node --test apps/mobile/src/features/session/*.test.ts",
     "test": "pnpm test:contracts && pnpm test:mobile && pnpm check:api",

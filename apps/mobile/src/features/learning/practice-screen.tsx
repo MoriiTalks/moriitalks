@@ -4,7 +4,6 @@ import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 
 import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
-import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { BackButton } from '@/components/navigation';
 import { Eyebrow, Note, Paragraph, Title } from '@/components/typography';
@@ -31,10 +30,13 @@ const secondaryLabels = {
 export function PracticeScreen() {
   const [step, setStep] = useState<PracticeStep>(0);
   const [showHelp, setShowHelp] = useState(false);
-  const { locale, completeMission } = useApp();
+  const [moriiSize, setMoriiSize] = useState(270);
   const { height } = useWindowDimensions();
+  const { locale, completeMission } = useApp();
   const id = locale === 'id';
   const mission = firstMission.locales[locale];
+  // Leave room for the example on short screens while keeping text at its readable size.
+  const maximumMoriiSize = height > 0 ? Math.max(140, height * 0.32) : 270;
 
   function changeStep(nextStep: PracticeStep) {
     setShowHelp(false);
@@ -78,7 +80,12 @@ export function PracticeScreen() {
 
   return (
     <Screen footer={<Button onPress={next}>{actionLabels[step][locale]}</Button>}>
-      <View className="gap-4">
+      <View
+        className="gap-5"
+        onLayout={(event) => {
+          setMoriiSize(Math.max(140, Math.min(event.nativeEvent.layout.width - 24, 270)));
+        }}
+      >
         <View className="flex-row flex-wrap items-center justify-between gap-2">
           <BackButton />
           {step < 3 && <Eyebrow>{`${String(step + 1)} / 3`}</Eyebrow>}
@@ -87,56 +94,63 @@ export function PracticeScreen() {
             accessibilityState={step === 0 ? { expanded: showHelp } : {}}
             aria-expanded={step === 0 ? showHelp : undefined}
             onPress={secondary}
-            className="min-h-12 justify-center rounded-xl px-3 active:opacity-80"
+            className="min-h-12 justify-center rounded-full px-3 active:bg-mint"
           >
-            <Text className="text-base font-semibold text-teal">
+            <Text className="text-sm font-medium text-teal">
               {showHelp ? (id ? 'Tutup' : 'Close') : secondaryLabels[step][locale]}
             </Text>
           </Pressable>
         </View>
-        <Morii pose={step === 1 ? 'listen' : 'wave'} size={height < 740 ? 200 : 270} />
+        <Morii
+          pose={step === 1 ? 'listen' : 'wave'}
+          animation={step === 3 ? 'encourage' : 'neutral'}
+          size={Math.min(moriiSize, maximumMoriiSize)}
+        />
       </View>
       {step === 0 && (
-        <>
-          <Card>
-            <Title>{id ? 'Lihat contoh Morii.' : 'See Morii’s example.'}</Title>
-            <Text className="text-2xl leading-[31px] font-semibold text-ink">
+        <View className="items-center gap-4">
+          <Eyebrow>{id ? 'Contoh Morii' : 'Morii’s example'}</Eyebrow>
+          <View className="w-full rounded-[28px] bg-surface p-5">
+            <Text className="text-center text-xl leading-8 font-medium text-ink">
               {mission.example}
             </Text>
-          </Card>
+          </View>
           {showHelp && <Paragraph>{mission.exampleNote}</Paragraph>}
-        </>
+        </View>
       )}
       {step === 1 && (
-        <Card>
-          <Paragraph>{mission.prompt}</Paragraph>
-          <Text className="text-2xl leading-[31px] font-semibold text-ink">{mission.starter}</Text>
+        <View className="items-center gap-4">
+          <Title>{id ? 'Sekarang ceritamu.' : 'Now, your story.'}</Title>
+          <Text className="text-center text-lg leading-7 text-muted">{mission.prompt}</Text>
+          <View className="w-full rounded-[28px] bg-mist px-5 py-4">
+            <Text className="text-center text-xl leading-8 font-medium text-ink">
+              {mission.starter}
+            </Text>
+          </View>
           <Note>
-            {id ? 'Latihan mandiri, mikrofon mati.' : 'Practice on your own, microphone off.'}
+            {id ? 'Latihan mandiri · mikrofon mati' : 'Practice on your own · microphone off'}
           </Note>
-        </Card>
+        </View>
       )}
       {step === 2 && (
-        <Card>
-          <Title>{id ? 'Satu alasan membantu.' : 'A reason helps.'}</Title>
-          <Paragraph>{mission.retry}</Paragraph>
+        <View className="items-center gap-4">
+          <Title>{id ? 'Satu ide. Satu alasan.' : 'One idea. One reason.'}</Title>
+          <Text className="text-center text-lg leading-7 text-muted">{mission.retry}</Text>
           <Note>
-            {id
-              ? 'Panduan latihan, bukan penilaian ucapanmu.'
-              : 'A practice guide, not a speech assessment.'}
+            {id ? 'Panduan latihan, bukan penilaian.' : 'A practice guide, not an assessment.'}
           </Note>
-        </Card>
+        </View>
       )}
       {step === 3 && (
-        <>
-          <Title>{id ? 'Latihanmu sudah dicatat.' : 'Your practice is marked complete.'}</Title>
-          <Paragraph>{mission.transfer}</Paragraph>
+        <View className="items-center gap-4">
+          <Title>{id ? 'Sudah kamu coba.' : 'You gave it a try.'}</Title>
+          <Text className="text-center text-lg leading-7 text-muted">{mission.transfer}</Text>
           <Note>
             {id
-              ? 'Dicatat untuk sesi ini, kemampuan berbicara belum dinilai.'
-              : 'Saved for this session, speaking skill has not been assessed.'}
+              ? 'Selesai menurutmu, dicatat untuk sesi ini. Kemampuan belum dinilai.'
+              : 'Marked complete by you, saved for this session. Skill has not been assessed.'}
           </Note>
-        </>
+        </View>
       )}
     </Screen>
   );

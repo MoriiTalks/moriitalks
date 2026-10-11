@@ -1,9 +1,11 @@
-import type { PreviewExample, VoiceLocale } from '@contracts/voice';
-
-export type { PreviewExample, VoiceLocale } from '@contracts/voice';
+export type { VoiceLocale } from '@contracts/voice';
 
 // Allows plain HTTP only for local development, remote voice traffic must use TLS.
-export function voiceEndpoints(configured: string | undefined, platform: string) {
+export function voiceEndpoints(
+  configured: string | undefined,
+  platform: string,
+  version: 1 | 2 = 1,
+) {
   const fallback = platform === 'android' ? '10.0.2.2' : '127.0.0.1';
   const base = new URL(configured ?? `http://${fallback}:8080`);
   const local = ['localhost', '127.0.0.1', '[::1]', '10.0.2.2'].includes(base.hostname);
@@ -16,38 +18,10 @@ export function voiceEndpoints(configured: string | undefined, platform: string)
   ) {
     throw new Error('An HTTPS API address is required.');
   }
-  const socket = new URL('/v1/voice', base);
+  const path = `/v${String(version)}/voice`;
+  const socket = new URL(path, base);
   socket.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
-  return { config: new URL('/v1/voice/config', base).href, socket: socket.href };
-}
-
-// Tracks event order and the active turn so stale replies cannot restart playback.
-export class VoiceCursor {
-  private sequence = 0;
-  private turn = 0;
-  private active: number | null = null;
-
-  begin() {
-    this.turn += 1;
-    this.active = this.turn;
-    return this.turn;
-  }
-
-  cancel(unstarted = false) {
-    if (unstarted && this.active === this.turn) this.turn -= 1;
-    this.active = null;
-  }
-
-  current() {
-    return this.active;
-  }
-
-  accept(sequence: number, turnId?: number) {
-    if (sequence <= this.sequence) return false;
-    // Consume event order even when a cancelled turn's event is ignored.
-    this.sequence = sequence;
-    return turnId === undefined || turnId === this.active;
-  }
+  return { config: new URL(`${path}/config`, base).href, socket: socket.href };
 }
 
 // Buffers one bounded reply and verifies its declared size before playback.
@@ -137,37 +111,4 @@ export function monoPCM(data: ArrayBuffer, channels: number) {
     samples.setInt16(offset, Math.round((left + right) / 2), true);
   }
   return output;
-}
-
-// Scripted examples supply preview text without model evaluation or microphone input.
-export function previewExample(locale: VoiceLocale, example: PreviewExample) {
-  const examples = {
-    id: {
-      reason: {
-        transcript:
-          'Aku suka menggambar karena bisa membuat cerita. Contohnya, aku menggambar petualangan seekor kucing.',
-        response:
-          'Kamu menyebut alasan dan contoh. Coba jelaskan bagaimana contoh itu mendukung alasanmu.',
-      },
-      brief: {
-        transcript: 'Aku suka menggambar.',
-        response:
-          'Pilihanmu sudah jelas. Tambahkan satu alasan. Coba mulai dengan: Aku suka menggambar karena…',
-      },
-    },
-    en: {
-      reason: {
-        transcript:
-          'I enjoy drawing because I can make stories. For example, I drew a cat on an adventure.',
-        response:
-          'You gave a reason and an example. Try explaining how the example supports your reason.',
-      },
-      brief: {
-        transcript: 'I like drawing.',
-        response:
-          'Your choice is clear. Add one reason. Try starting with: I like drawing because…',
-      },
-    },
-  };
-  return examples[locale][example];
 }

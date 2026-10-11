@@ -1,4 +1,4 @@
-// Checks transport, turn ordering, and audio limits without Expo or provider calls.
+// Checks transport and audio limits without Expo or provider calls.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -6,7 +6,6 @@ import {
   AudioQueue,
   AudioReply,
   AudioUpload,
-  VoiceCursor,
   captureDurationMs,
   monoPCM,
   voiceEndpoints,
@@ -21,27 +20,6 @@ void test('remote voice transport requires HTTPS and rejects embedded credential
     'wss://voice.example.com/v1/voice',
   );
   assert.equal(voiceEndpoints(undefined, 'android').config, 'http://10.0.2.2:8080/v1/voice/config');
-});
-
-void test('cancelled and out-of-order turns cannot restart audio', () => {
-  const cursor = new VoiceCursor();
-  const first = cursor.begin();
-  assert.equal(cursor.accept(1, first), true);
-  cursor.cancel();
-  assert.equal(cursor.accept(2, first), false);
-  const second = cursor.begin();
-  assert.equal(cursor.accept(3, first), false);
-  assert.equal(cursor.accept(2, second), false);
-  assert.equal(cursor.accept(4, second), true);
-});
-
-void test('cancelled permission setup does not consume an unstarted turn', () => {
-  const cursor = new VoiceCursor();
-  assert.equal(cursor.begin(), 1);
-  cursor.cancel(true);
-  assert.equal(cursor.begin(), 1);
-  cursor.cancel();
-  assert.equal(cursor.begin(), 2);
 });
 
 void test('response audio is bounded and incomplete payloads cannot play', () => {

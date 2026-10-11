@@ -1,0 +1,1067 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "config": {
+      "type": "object",
+      "properties": {
+        "maxSessionSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "maxTurnSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "version": {
+          "type": "number",
+          "const": 2
+        },
+        "liveEnabled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["maxSessionSeconds", "maxTurnSeconds", "maxTurns", "version", "liveEnabled"],
+      "additionalProperties": false
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "session.start"
+            },
+            "locale": {
+              "type": "string",
+              "enum": ["id", "en"]
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["talk", "practice"]
+            },
+            "topic": {
+              "type": "string",
+              "enum": ["hobby", "day", "ideas"]
+            },
+            "adultConfirmed": {
+              "type": "boolean"
+            }
+          },
+          "required": ["version", "type", "locale", "mode", "topic", "adultConfirmed"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.start"
+            },
+            "sampleRate": {
+              "type": "integer",
+              "minimum": 8000,
+              "maximum": 48000
+            },
+            "channels": {
+              "type": "number",
+              "const": 1
+            },
+            "encoding": {
+              "type": "string",
+              "const": "pcm_s16le"
+            }
+          },
+          "required": [
+            "version",
+            "turnId",
+            "generation",
+            "type",
+            "sampleRate",
+            "channels",
+            "encoding"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.commit"
+            }
+          },
+          "required": ["version", "turnId", "generation", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.cancel"
+            }
+          },
+          "required": ["version", "turnId", "generation", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.text"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          },
+          "required": ["version", "turnId", "generation", "type", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.action"
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "actionId": {
+              "type": "string",
+              "enum": [
+                "hobby",
+                "day",
+                "ideas",
+                "hint",
+                "outline",
+                "retry",
+                "finish",
+                "start_mission",
+                "end_session"
+              ]
+            }
+          },
+          "required": ["version", "turnId", "generation", "type", "responseId", "actionId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "response.played"
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": ["version", "turnId", "generation", "type", "responseId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "panel.dismiss"
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": ["version", "type", "generation", "responseId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "type": {
+              "type": "string",
+              "const": "session.close"
+            }
+          },
+          "required": ["version", "type"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "session.ready"
+            },
+            "kind": {
+              "type": "string",
+              "enum": ["preview", "live"]
+            },
+            "limits": {
+              "type": "object",
+              "properties": {
+                "maxSessionSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300
+                },
+                "maxTurnSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 30
+                },
+                "maxTurns": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 8
+                }
+              },
+              "required": ["maxSessionSeconds", "maxTurnSeconds", "maxTurns"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["version", "sequence", "sessionId", "generation", "type", "kind", "limits"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "transcript"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "final": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "turnId",
+            "type",
+            "text",
+            "final"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.state"
+            },
+            "state": {
+              "type": "string",
+              "enum": ["listening", "thinking", "speaking", "ready"]
+            }
+          },
+          "required": ["version", "sequence", "sessionId", "generation", "turnId", "type", "state"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            },
+            "animation": {
+              "type": "string",
+              "enum": ["neutral", "wave", "think", "encourage"]
+            },
+            "panel": {
+              "anyOf": [
+                {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "show_hint"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": ["type", "title", "text"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "show_choices"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60
+                        },
+                        "choices": {
+                          "minItems": 1,
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "enum": ["hobby", "day", "ideas"]
+                              },
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 60
+                              }
+                            },
+                            "required": ["id", "label"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["type", "title", "choices"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "show_outline"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60
+                        },
+                        "parts": {
+                          "minItems": 1,
+                          "maxItems": 3,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          }
+                        }
+                      },
+                      "required": ["type", "title", "parts"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "propose_feedback"
+                        },
+                        "quote": {
+                          "type": "string",
+                          "maxLength": 300
+                        },
+                        "observation": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "nextStep": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "rubricId": {
+                          "type": "string",
+                          "const": "idea-and-reason-v1"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["observed", "needs_practice", "not_observed", "unassessable"]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "quote",
+                        "observation",
+                        "nextStep",
+                        "rubricId",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "propose_next_mission"
+                        },
+                        "missionId": {
+                          "type": "string",
+                          "const": "first-explanation"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 60
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": ["type", "missionId", "title", "text"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "const": "request_end_session"
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": ["type", "text"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.response"
+            },
+            "source": {
+              "type": "string",
+              "enum": ["script", "ai"]
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "turnId",
+            "responseId",
+            "text",
+            "animation",
+            "panel",
+            "type",
+            "source"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "type": {
+              "type": "string",
+              "const": "audio.start"
+            },
+            "format": {
+              "type": "string",
+              "const": "mp3"
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "turnId",
+            "responseId",
+            "type",
+            "format"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "type": {
+              "type": "string",
+              "const": "audio.end"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 524288
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "turnId",
+            "responseId",
+            "type",
+            "bytes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "responseId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.metrics"
+            },
+            "sttMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "coachMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "ttsMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "totalMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "audioSeconds": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30
+            },
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "ttsCharacters": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "turnId",
+            "responseId",
+            "type",
+            "sttMs",
+            "coachMs",
+            "ttsMs",
+            "totalMs",
+            "audioSeconds",
+            "inputTokens",
+            "outputTokens",
+            "ttsCharacters"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.cancelled"
+            }
+          },
+          "required": ["version", "sequence", "sessionId", "generation", "turnId", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "type": {
+              "type": "string",
+              "const": "turn.audio.accepted"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2880000
+            }
+          },
+          "required": ["version", "sequence", "sessionId", "generation", "turnId", "type", "bytes"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "error"
+            },
+            "code": {
+              "type": "string",
+              "enum": ["invalid_message", "unavailable", "limit", "provider", "unsafe", "timeout"]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "recoverable": {
+              "type": "boolean"
+            },
+            "turnId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            }
+          },
+          "required": [
+            "version",
+            "sequence",
+            "sessionId",
+            "generation",
+            "type",
+            "code",
+            "message",
+            "recoverable"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 2
+            },
+            "sequence": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "const": "session.closed"
+            },
+            "reason": {
+              "type": "string",
+              "enum": ["client", "timeout", "limit"]
+            }
+          },
+          "required": ["version", "sequence", "sessionId", "generation", "type", "reason"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": ["config", "command", "event"],
+  "additionalProperties": false
+}

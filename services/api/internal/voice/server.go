@@ -19,6 +19,7 @@ import (
 type Server struct {
 	config         Config
 	providers      providers
+	harnessCoach   harnessProvider
 	slots          chan struct{}
 	mu             sync.Mutex
 	connections    map[*websocket.Conn]context.CancelFunc
@@ -29,13 +30,16 @@ type Server struct {
 
 // NewServer creates a lab server with process-local admission accounting.
 func NewServer(config Config) *Server {
-	return &Server{config: config, providers: newCloudProviders(config), slots: make(chan struct{}, 5), connections: make(map[*websocket.Conn]context.CancelFunc), captureTimeout: maxTurnSeconds * time.Second}
+	cloud := newCloudProviders(config)
+	return &Server{config: config, providers: cloud, harnessCoach: cloud, slots: make(chan struct{}, 5), connections: make(map[*websocket.Conn]context.CancelFunc), captureTimeout: maxTurnSeconds * time.Second}
 }
 
 // Register adds the voice configuration and WebSocket routes.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/voice/config", s.configuration)
 	mux.HandleFunc("GET /v1/voice", s.connect)
+	mux.HandleFunc("GET /v2/voice/config", s.harnessConfiguration)
+	mux.HandleFunc("GET /v2/voice", s.connectHarness)
 }
 
 // Loopback Origin checks constrain browser callers, they do not authenticate users.
@@ -47,6 +51,10 @@ func allowedOrigin(origin string) bool {
 }
 
 func (s *Server) configuration(w http.ResponseWriter, r *http.Request) {
+	s.configurationVersion(w, r, 1)
+}
+
+func (s *Server) configurationVersion(w http.ResponseWriter, r *http.Request, version int) {
 	if origin := r.Header.Get("Origin"); origin != "" {
 		if !allowedOrigin(origin) {
 			http.Error(w, "Origin is not allowed", http.StatusForbidden)
@@ -57,10 +65,14 @@ func (s *Server) configuration(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(configurationResponse{1, s.config.liveEnabled(), s.limits(s.config.liveEnabled())})
+	_ = json.NewEncoder(w).Encode(configurationResponse{version, s.config.liveEnabled(), s.limits(s.config.liveEnabled())})
 }
 
 func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
+	s.connectVersion(w, r, 1)
+}
+
+func (s *Server) connectVersion(w http.ResponseWriter, r *http.Request, version int) {
 	if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin) {
 		http.Error(w, "Origin is not allowed", http.StatusForbidden)
 		return
@@ -89,6 +101,14 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.connections, connection); s.mu.Unlock() }()
 	session := &session{server: s, connection: connection, ctx: ctx, cancel: cancel}
+	if version == 2 {
+		session.harness = &harnessState{}
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return
+		}
+		session.sessionID = hex.EncodeToString(id[:])
+	}
 	expiry := time.AfterFunc(maxSessionSeconds*time.Second, session.expire)
 	defer expiry.Stop()
 	defer session.stopTurn()
@@ -112,6 +132,8 @@ func (s *Server) Close() {
 
 type turn struct {
 	id           int
+	generation   int
+	options      sessionOptions
 	format       audioFormat
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -138,10 +160,12 @@ type session struct {
 	reservedUSD float64
 	active      *turn
 	closed      bool
+	harness     *harnessState
 }
 
 func (s *session) run() {
-	idle := time.AfterFunc(45*time.Second, s.expire)
+	idleTimeout := s.idleTimeout()
+	idle := time.AfterFunc(idleTimeout, s.expire)
 	defer idle.Stop()
 	for {
 		kind, data, err := s.connection.Read(s.ctx)
@@ -151,9 +175,15 @@ func (s *session) run() {
 		if s.ctx.Err() != nil {
 			return
 		}
-		idle.Reset(45 * time.Second)
+		idle.Reset(idleTimeout)
 		if kind == websocket.MessageBinary {
 			s.receiveAudio(data)
+			continue
+		}
+		if s.harness != nil {
+			if !s.handleHarness(data) {
+				return
+			}
 			continue
 		}
 		message, err := parseMessage(data)
@@ -189,16 +219,26 @@ func (s *session) run() {
 	}
 }
 
+// Harness panels allow unhurried reading, the independent absolute session timer still bounds admission.
+func (s *session) idleTimeout() time.Duration {
+	if s.harness != nil {
+		return maxSessionSeconds * time.Second
+	}
+	return 45 * time.Second
+}
+
 func (s *session) start(message clientMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.started {
-		var id [16]byte
-		if _, err := rand.Read(id[:]); err != nil {
-			s.failureLocked(0, "unavailable", false)
-			return
+		if s.sessionID == "" {
+			var id [16]byte
+			if _, err := rand.Read(id[:]); err != nil {
+				s.failureLocked(0, "unavailable", false)
+				return
+			}
+			s.sessionID = hex.EncodeToString(id[:])
 		}
-		s.sessionID = hex.EncodeToString(id[:])
 		s.options = sessionOptions{message.Locale, message.Mode, message.Topic}
 		s.kind = "preview"
 		// Adult confirmation is a lab self-declaration, not age verification.
@@ -251,38 +291,57 @@ func example(locale, choice string) (string, string) {
 }
 
 func (s *session) startTurn(message clientMessage) {
+	s.startTurnAtGeneration(message, 0)
+}
+
+func (s *session) startTurnAtGeneration(message clientMessage, generation int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	var attemptedGeneration *int
+	if s.harness != nil {
+		attemptedGeneration = pointer(generation)
+	}
 	if s.kind != "live" {
-		s.failureLocked(message.TurnID, "unavailable", true)
+		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "unavailable", true)
 		return
 	}
 	if message.TurnID <= s.lastTurn {
 		return
 	}
 	if s.active != nil || message.TurnID != s.lastTurn+1 {
-		s.failureLocked(message.TurnID, "invalid_message", true)
+		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "invalid_message", true)
 		return
 	}
 	// Reserve admission capacity before a provider can incur any charge.
 	// Reservations are never refunded and do not guarantee a provider invoice cap.
 	if s.reservedUSD+turnReserveUSD > s.server.config.MaxSessionUSD+0.000001 {
-		s.failureLocked(message.TurnID, "limit", false)
+		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "limit", false)
 		return
 	}
 	s.server.mu.Lock()
 	if s.server.reservedUSD+turnReserveUSD > s.server.config.MaxLabUSD+0.000001 {
 		s.server.mu.Unlock()
-		s.failureLocked(message.TurnID, "limit", false)
+		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "limit", false)
 		return
 	}
 	s.server.reservedUSD += turnReserveUSD
 	s.server.mu.Unlock()
 	s.reservedUSD += turnReserveUSD
 	s.lastTurn = message.TurnID
+	if s.harness != nil {
+		s.harness.generation = generation
+		s.harness.pending = nil
+		s.harness.action = ""
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, (maxTurnSeconds+30)*time.Second)
-	current := &turn{id: message.TurnID, format: audioFormat{message.SampleRate}, ctx: ctx, cancel: cancel, audio: make(chan []byte, 16), started: time.Now(), captureTimer: time.NewTimer(s.server.captureTimeout)}
+	current := &turn{id: message.TurnID, options: s.options, format: audioFormat{message.SampleRate}, ctx: ctx, cancel: cancel, audio: make(chan []byte, 16), started: time.Now(), captureTimer: time.NewTimer(s.server.captureTimeout)}
 	s.active = current
+	if s.harness != nil {
+		current.generation = s.harness.generation
+	}
 	s.sendLocked(event{Type: "turn.state", TurnID: current.id, State: "listening"})
 	go s.process(current)
 }
@@ -350,6 +409,9 @@ func (s *session) cancelTurn(id int) {
 		s.active.cancel()
 		s.active = nil
 	}
+	if s.harness != nil {
+		s.harness.pending = nil
+	}
 	s.sendLocked(event{Type: "turn.cancelled", TurnID: id})
 }
 
@@ -361,6 +423,10 @@ func (s *session) stopTurn() {
 		s.active = nil
 	}
 	s.closed = true
+	if s.harness != nil {
+		s.harness.history = nil
+		s.harness.pending = nil
+	}
 	// The session cancellation also stops any provider call still in flight.
 	s.cancel()
 }
@@ -391,13 +457,16 @@ func (s *session) failTurnLocked(current *turn, code string) {
 	if s.active == current {
 		s.active = nil
 	}
+	if s.harness != nil && s.harness.pending != nil && s.harness.pending.turnID == current.id {
+		s.harness.pending = nil
+	}
 	s.failureLocked(current.id, code, true)
 }
 
 func (s *session) process(current *turn) {
 	defer current.cancel()
 	defer current.captureTimer.Stop()
-	stream, err := s.server.providers.Listen(current.ctx, s.options, current.format, func(text string) {
+	stream, err := s.server.providers.Listen(current.ctx, current.options, current.format, func(text string) {
 		s.sendForTurn(current, event{Type: "transcript", TurnID: current.id, Text: text, Final: pointer(false)})
 	})
 	if err != nil {
@@ -444,8 +513,12 @@ committed:
 		s.providerFailure(current, errProvider)
 		return
 	}
+	if s.harness != nil {
+		s.respondHarness(current, text, completedAudio, sttMs)
+		return
+	}
 	coachStart := time.Now()
-	response, err := s.server.providers.Respond(current.ctx, s.options, text)
+	response, err := s.server.providers.Respond(current.ctx, current.options, text)
 	coachMs := time.Since(coachStart).Milliseconds()
 	if err != nil {
 		s.providerFailure(current, err)
@@ -454,7 +527,7 @@ committed:
 	s.sendForTurn(current, event{Type: "transcript", TurnID: current.id, Text: text, Final: pointer(true)})
 	s.sendForTurn(current, event{Type: "turn.response", TurnID: current.id, Text: response.Text, Source: "ai"})
 	ttsStart := time.Now()
-	audio, err := s.server.providers.Speak(current.ctx, s.options, response.Text)
+	audio, err := s.server.providers.Speak(current.ctx, current.options, response.Text)
 	ttsMs := time.Since(ttsStart).Milliseconds()
 	if err != nil {
 		s.providerFailure(current, err)
@@ -524,11 +597,15 @@ func (s *session) failure(id int, code string, recoverable bool) {
 }
 
 func (s *session) failureLocked(id int, code string, recoverable bool) {
+	s.failureGenerationLocked(id, nil, code, recoverable)
+}
+
+func (s *session) failureGenerationLocked(id int, generation *int, code string, recoverable bool) {
 	message := "This turn could not be completed. Please try again."
 	if s.options.Locale == "id" {
 		message = "Giliran ini belum bisa diselesaikan. Silakan coba lagi."
 	}
-	s.sendLocked(event{Type: "error", TurnID: id, Code: code, Message: message, Recoverable: pointer(recoverable)})
+	s.sendLocked(event{Type: "error", TurnID: id, Generation: generation, Code: code, Message: message, Recoverable: pointer(recoverable)})
 }
 
 // sendLocked requires mu so sequence numbers follow the WebSocket write order.
@@ -538,6 +615,12 @@ func (s *session) sendLocked(value event) {
 	}
 	s.sequence++
 	value.Version, value.Sequence = 1, s.sequence
+	if s.harness != nil {
+		value.Version, value.SessionID = 2, s.sessionID
+		if value.Generation == nil {
+			value.Generation = pointer(s.harness.generation)
+		}
+	}
 	data, err := json.Marshal(value)
 	if err != nil {
 		return

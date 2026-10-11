@@ -28,9 +28,11 @@ export function Button({
       aria-pressed={selected}
       disabled={disabled}
       onPress={onPress}
-      className={`min-h-14 items-center justify-center rounded-2xl px-5 py-4 ${disabled ? 'opacity-50' : 'active:opacity-80'} ${secondary ? 'bg-mint' : 'bg-teal'} ${selected ? 'border-2 border-teal' : ''}`}
+      className={`min-h-13 items-center justify-center rounded-full px-5 py-3.5 ${disabled ? 'opacity-50' : secondary ? 'active:bg-mint-strong' : 'active:bg-teal-strong'} ${secondary ? 'bg-mint' : 'bg-teal'} ${selected ? 'border-2 border-teal' : ''}`}
     >
-      <Text className={`text-center text-base font-bold ${secondary ? 'text-teal' : 'text-white'}`}>
+      <Text
+        className={`text-center text-base font-semibold ${secondary ? 'text-teal' : 'text-white'}`}
+      >
         {children}
       </Text>
     </Pressable>

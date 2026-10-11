@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
+import { Text, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
-import { Eyebrow, Heading, Note, Paragraph, Title } from '@/components/typography';
+import { Heading, Note, Title } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
 // Updates the in-memory locale and exposes the separate adult voice lab.
@@ -12,46 +13,54 @@ export function SettingsScreen() {
   const id = locale === 'id';
   return (
     <Screen navigation>
-      <Eyebrow>{id ? 'SESUAIKAN RUANGMU' : 'MAKE IT YOURS'}</Eyebrow>
-      <Heading>{id ? 'Pengaturan' : 'Settings'}</Heading>
-      <Card>
-        <Title>{id ? 'Bahasa' : 'Language'}</Title>
-        <Paragraph>
-          {id
-            ? 'Pilih bahasa tampilan dan latihan contoh.'
-            : 'Choose the language for the interface and sample practice.'}
-        </Paragraph>
-        <Button
-          selected={id}
-          variant={id ? 'primary' : 'secondary'}
-          onPress={() => {
-            setLocale('id');
-          }}
-        >
-          Bahasa Indonesia{id ? ' ✓' : ''}
-        </Button>
-        <Button
-          selected={!id}
-          variant={!id ? 'primary' : 'secondary'}
-          onPress={() => {
-            setLocale('en');
-          }}
-        >
-          English{!id ? ' ✓' : ''}
-        </Button>
-      </Card>
-      <Card>
-        <Title>{id ? 'Tentang versi ini' : 'About this preview'}</Title>
-        <Paragraph>
-          {id
-            ? 'Latihan contoh tidak memakai mikrofon. Uji suara AI di aplikasi native hanya untuk penguji dewasa dan perlu diaktifkan.'
-            : 'Practice examples do not use your microphone. Native AI voice testing is for adults and must be enabled.'}
-        </Paragraph>
+      <View className="gap-2 pt-3">
+        <Heading>{id ? 'Ruangmu.' : 'Your space.'}</Heading>
         <Note>
           {id
-            ? 'Bahasa dan catatan latihan kembali ke awal setelah aplikasi dimulai ulang.'
-            : 'Language and practice notes reset when the app restarts.'}
+            ? 'Sedikit pengaturan, lalu lanjut cerita.'
+            : 'A few preferences, then back to your story.'}
         </Note>
+      </View>
+      <Card>
+        <Title>{id ? 'Bahasa' : 'Language'}</Title>
+        <View className="gap-2">
+          <Button
+            selected={id}
+            variant={id ? 'primary' : 'secondary'}
+            onPress={() => {
+              setLocale('id');
+            }}
+          >
+            Bahasa Indonesia
+          </Button>
+          <Button
+            selected={!id}
+            variant={!id ? 'primary' : 'secondary'}
+            onPress={() => {
+              setLocale('en');
+            }}
+          >
+            English
+          </Button>
+        </View>
+      </Card>
+      <Card>
+        <Title>{id ? 'Tentang versi ini' : 'About this version'}</Title>
+        <Text className="text-sm leading-6 text-muted">
+          {id
+            ? 'Obrolan dengan Morii memakai contoh tertulis yang terprogram, belum AI langsung. Latihan mandiri tidak memakai mikrofon.'
+            : 'Talk with Morii uses scripted text examples, not live AI. Independent practice does not use your microphone.'}
+        </Text>
+        <Note>
+          {id
+            ? 'Bahasa dan catatan latihan tersimpan selama sesi aplikasi ini.'
+            : 'Language and practice notes last for this app session.'}
+        </Note>
+        <Text className="text-sm leading-6 text-muted">
+          {id
+            ? 'Uji suara AI di aplikasi native hanya untuk penguji dewasa, dan harus diaktifkan.'
+            : 'Native AI voice testing is for adult testers and must be enabled.'}
+        </Text>
         <Button
           variant="secondary"
           onPress={() => {

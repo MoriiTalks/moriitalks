@@ -1,9 +1,8 @@
 import { router } from 'expo-router';
-import { useWindowDimensions } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
 
 import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
-import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
 import { Note, Paragraph, Title } from '@/components/typography';
 import { firstMission } from '@/features/learning/mission';
@@ -34,17 +33,23 @@ export function ProgressScreen() {
         </Button>
       }
     >
-      <Morii size={Math.min(height < 740 ? 200 : 270, width - 64)} />
-      <Card>
+      <View className="items-center gap-2 pt-3">
+        <Text className="text-xs font-medium text-teal">{id ? 'LATIHANMU' : 'YOUR PRACTICE'}</Text>
         <Title>
           {complete
             ? id
-              ? 'Sudah dicoba.'
-              : 'Practice recorded.'
+              ? 'Satu cerita sudah dicoba.'
+              : 'One story, tried.'
             : id
-              ? 'Siap dicoba.'
-              : 'Ready to try.'}
+              ? 'Mulai dari satu cerita.'
+              : 'Start with one story.'}
         </Title>
+      </View>
+      <Morii
+        size={Math.max(160, Math.min(height < 740 ? height * 0.3 : 300, width - 80))}
+        animation={complete ? 'encourage' : 'neutral'}
+      />
+      <View className="items-center gap-4 rounded-[28px] bg-surface px-6 py-5">
         <Paragraph>
           {id
             ? complete
@@ -55,11 +60,15 @@ export function ProgressScreen() {
               : 'Start with something you like.'}
         </Paragraph>
         <Note>
-          {id
-            ? 'Catatan sesi ini, bukan penilaian kemampuan.'
-            : 'For this session, not a skill assessment.'}
+          {complete
+            ? id
+              ? 'Selesai menurutmu · sesi ini saja · kemampuan belum dinilai'
+              : 'Marked complete by you · this session only · skill not assessed'
+            : id
+              ? 'Catatan sesi ini, bukan penilaian kemampuan.'
+              : 'For this session, not a skill assessment.'}
         </Note>
-      </Card>
+      </View>
     </Screen>
   );
 }

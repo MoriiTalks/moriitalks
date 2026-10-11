@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
 
 import { Navigation } from '@/components/navigation';
+import { SceneBackground } from '@/components/scene-background';
 
 const StyledSafeAreaView = withUniwind(SafeAreaView);
 
@@ -15,12 +16,16 @@ export function Screen({
 }: PropsWithChildren<{ navigation?: boolean; footer?: ReactNode }>) {
   return (
     <StyledSafeAreaView className="flex-1 bg-cream">
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerClassName="grow p-6">
-        <View className="w-full max-w-[560px] gap-6 self-center">{children}</View>
+      <SceneBackground />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerClassName="grow px-6 pt-5 pb-3"
+      >
+        <View className="min-h-0 w-full max-w-140 flex-1 gap-6 self-center">{children}</View>
       </ScrollView>
       {footer !== undefined && (
         <View className="px-6 pt-3 pb-6">
-          <View className="w-full max-w-[560px] self-center">{footer}</View>
+          <View className="w-full max-w-140 self-center">{footer}</View>
         </View>
       )}
       {navigation && <Navigation />}

@@ -1,100 +1,155 @@
 import { useState } from 'react';
-import { Text, View, useWindowDimensions } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
-import { Card } from '@/components/card';
-import { Morii } from '@/components/morii';
-import { BackButton } from '@/components/navigation';
-import { Screen } from '@/components/screen';
-import { Eyebrow, Paragraph, Title } from '@/components/typography';
+import { IconButton } from '@/components/icon-button';
+import { Note } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
+import { harnessCopy } from './harness-copy';
+import { HarnessPanelView, HarnessTools } from './harness-panel';
 import { sessionCopy } from './session-copy';
+import { SessionStage } from './session-stage';
 import { useVoiceSession } from './use-voice-session';
-import { previewExample } from './voice-runtime';
-import type { PreviewExample } from './voice-runtime';
 
-// Runs scripted conversation examples without microphone capture or cloud requests.
-export function TalkScreen() {
-  const { locale } = useApp();
-  const { height, width } = useWindowDimensions();
-  const [step, setStep] = useState<'prompt' | 'example' | 'feedback'>('prompt');
-  const [exampleKind, setExampleKind] = useState<PreviewExample>('reason');
-  const [showTranscript, setShowTranscript] = useState(false);
-  const session = useVoiceSession({ locale, mode: 'practice', topic: 'hobby' });
-  const copy = sessionCopy[locale];
-  const example = previewExample(locale, exampleKind);
-  const speaking = session.status === 'speaking';
-  const moriiSize = Math.min(height < 740 ? 200 : 280, width - 64);
+// Draft text exists only while the connected preview composer is mounted.
+function PreviewComposer({
+  busy,
+  placeholder,
+  sendLabel,
+  onSubmit,
+}: {
+  busy: boolean;
+  placeholder: string;
+  sendLabel: string;
+  onSubmit: (text: string) => void;
+}) {
+  const [text, setText] = useState('');
 
-  function pressPrimary() {
-    if (speaking) {
-      session.interrupt();
-    } else if (step === 'example') {
-      setStep('feedback');
-      void session.startPreview(exampleKind);
-    } else {
-      if (step === 'feedback') {
-        session.interrupt();
-        setExampleKind((current) => (current === 'reason' ? 'brief' : 'reason'));
-      }
-      setShowTranscript(false);
-      setStep('example');
-    }
+  function submit() {
+    const message = text.trim();
+    if (message === '' || busy) return;
+    onSubmit(message);
+    setText('');
   }
 
-  const primaryLabel = speaking
-    ? copy.interrupt
-    : step === 'example'
-      ? copy.showFeedback
-      : step === 'feedback'
-        ? copy.nextExample
-        : copy.showExample;
+  return (
+    <View className="min-w-0 flex-row items-center gap-2 rounded-full border border-line bg-surface p-1.5">
+      <TextInput
+        accessibilityLabel={placeholder}
+        placeholder={placeholder}
+        placeholderTextColor="#5C7068"
+        value={text}
+        editable={!busy}
+        maxLength={1000}
+        onChangeText={setText}
+        onSubmitEditing={submit}
+        returnKeyType="send"
+        className="min-h-12 min-w-0 flex-1 rounded-full px-3 py-2 text-base text-ink"
+      />
+      <IconButton
+        icon="send"
+        label={sendLabel}
+        primary
+        disabled={busy || text.trim() === ''}
+        onPress={submit}
+      />
+    </View>
+  );
+}
+
+// The quiet entry point previews approved UI actions with scripted replies and typed input.
+export function TalkScreen() {
+  const { locale } = useApp();
+  const [showTools, setShowTools] = useState(false);
+  const session = useVoiceSession({ locale, mode: 'talk', topic: 'hobby' });
+  const copy = sessionCopy[locale];
+  const harness = harnessCopy[locale];
+  const id = locale === 'id';
+  const connected =
+    session.kind === 'preview' && ['ready', 'thinking', 'speaking'].includes(session.status);
+  const busy =
+    session.status === 'connecting' ||
+    session.status === 'thinking' ||
+    session.status === 'speaking';
+  const exhausted = connected && session.remainingTurns === 0;
+  const actionable = session.status === 'ready' && session.responseId !== null && !exhausted;
+
+  function begin() {
+    setShowTools(false);
+    void session.connectPreview();
+  }
+
+  function end() {
+    setShowTools(false);
+    session.end();
+  }
 
   return (
-    <Screen footer={<Button onPress={pressPrimary}>{primaryLabel}</Button>}>
-      <View className="flex-row flex-wrap items-center justify-between gap-3">
-        <BackButton />
-        <Title>{copy.title}</Title>
-      </View>
-      <View className="gap-3">
-        <Morii size={moriiSize} />
-        <Text
-          accessibilityLiveRegion="polite"
-          className="text-center text-sm leading-5 font-semibold text-teal"
-        >
-          {speaking ? copy.status.speaking : copy.preview}
-        </Text>
-      </View>
-      <Card>
-        {step === 'example' && <Eyebrow>{copy.sample}</Eyebrow>}
-        <Paragraph>
-          {step === 'prompt'
-            ? copy.prompts.hobby
-            : step === 'example'
-              ? example.transcript
-              : session.response || example.response}
-        </Paragraph>
-        {step === 'feedback' && (
+    <SessionStage
+      status={copy.status[session.status]}
+      state={session.status}
+      animation={session.animation}
+      info={{
+        title: id ? 'Bercerita dengan Morii' : 'Talking with Morii',
+        body: id
+          ? 'Versi ini memakai pesan tertulis dan jawaban contoh untuk mencoba interaksi Morii. Mikrofon tidak digunakan. Jawaban ini belum berasal dari percakapan AI langsung.'
+          : 'This version uses typed messages and sample replies to try Morii’s interactions. The microphone is not used. Replies are not yet from a live AI conversation.',
+      }}
+      {...(!connected && !busy ? { onMoriiPress: begin, moriiLabel: harness.start } : {})}
+      {...(connected || busy ? { onEnd: end } : {})}
+      footer={
+        !connected ? (
+          <Text className="py-3 text-center text-base leading-6 text-muted">
+            {busy ? copy.wait : id ? 'Ketuk Morii untuk menyapa' : 'Tap Morii to say hello'}
+          </Text>
+        ) : exhausted ? (
+          <Button onPress={end}>{harness.end}</Button>
+        ) : (
           <>
-            <Button
-              expanded={showTranscript}
-              variant="secondary"
-              onPress={() => {
-                setShowTranscript((shown) => !shown);
-              }}
-            >
-              {showTranscript ? copy.hideExample : copy.showExample}
-            </Button>
-            {showTranscript && (
-              <View className="gap-2">
-                <Eyebrow>{copy.sample}</Eyebrow>
-                <Paragraph>{example.transcript}</Paragraph>
-              </View>
+            {actionable && (
+              <HarnessTools
+                locale={locale}
+                expanded={showTools}
+                onToggle={() => {
+                  setShowTools((shown) => !shown);
+                }}
+                onAction={(action) => {
+                  session.act(action);
+                  setShowTools(false);
+                }}
+              />
             )}
+            <PreviewComposer
+              busy={busy}
+              placeholder={harness.placeholder}
+              sendLabel={harness.send}
+              onSubmit={(message) => {
+                session.submitText(message);
+                setShowTools(false);
+              }}
+            />
           </>
-        )}
-      </Card>
-    </Screen>
+        )
+      }
+    >
+      {session.response !== '' && session.panel === null && (
+        <View className="rounded-3xl bg-surface px-5 py-4">
+          <Text className="text-lg leading-7 text-ink">{session.response}</Text>
+        </View>
+      )}
+      {session.panel !== null && (
+        <HarnessPanelView
+          panel={session.panel}
+          locale={locale}
+          disabled={!actionable}
+          canEnd={connected && !busy}
+          busy={busy}
+          onAction={session.act}
+          onDismiss={session.dismissPanel}
+        />
+      )}
+      {session.error !== null && <Note>{session.error}</Note>}
+    </SessionStage>
   );
 }

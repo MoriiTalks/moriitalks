@@ -1,56 +1,58 @@
 import { router } from 'expo-router';
-import { Text, View, useWindowDimensions } from 'react-native';
+import { useState } from 'react';
+import { Text, View } from 'react-native';
 
 import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
 import { Screen } from '@/components/screen';
-import { Paragraph, Title } from '@/components/typography';
-import { firstMission } from '@/features/learning/mission';
+import { Heading, Paragraph } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
-// Offers the bundled first mission and a separate scripted conversation preview.
+// Keeps Morii and one invitation central, the preview details remain available in settings.
 export function HomeScreen() {
   const { locale } = useApp();
-  const { height, width } = useWindowDimensions();
+  const [moriiSize, setMoriiSize] = useState(300);
   const id = locale === 'id';
-  const mission = firstMission.locales[locale];
-  const moriiSize = height < 740 ? Math.min(220, width * 0.625) : 280;
   return (
     <Screen
       navigation
       footer={
-        <View className="gap-3">
+        <View className="gap-2">
           <Button
-            onPress={() => {
-              router.push('/practice');
-            }}
-          >
-            {id ? 'Mulai latihan' : 'Start practicing'}
-          </Button>
-          <Button
-            variant="secondary"
             onPress={() => {
               router.push('/talk');
             }}
           >
-            {id ? 'Contoh obrolan' : 'Chat example'}
+            {id ? 'Cerita dengan Morii' : 'Talk with Morii'}
+          </Button>
+          <Button
+            variant="secondary"
+            onPress={() => {
+              router.push('/practice');
+            }}
+          >
+            {id ? 'Latihan singkat' : 'A little practice'}
           </Button>
         </View>
       }
     >
-      <View className="gap-3">
-        <View className="flex-row items-center justify-between gap-3">
-          <Text className="text-2xl font-extrabold tracking-[-1px] text-ink">
+      <View className="flex-1 gap-5">
+        <View className="flex-row items-center justify-between gap-4">
+          <Text className="text-xl font-bold tracking-[-0.8px] text-ink">
             morii<Text className="text-teal">talks</Text>
           </Text>
-          <Text className="shrink text-right text-xs text-muted">
-            {id ? 'Bahasa Indonesia' : 'English'}
-          </Text>
+          <Text className="text-xs font-medium text-muted">{id ? 'Indonesia' : 'English'}</Text>
         </View>
-        <Morii size={moriiSize} />
-        <View className="gap-2">
-          <Title>{mission.title}</Title>
-          <Paragraph>{mission.goal}</Paragraph>
+        <View
+          className="min-h-0 flex-1 items-center justify-center gap-3"
+          onLayout={(event) => {
+            const { height, width } = event.nativeEvent.layout;
+            setMoriiSize(Math.max(160, Math.min(width - 12, height - 100, 360)));
+          }}
+        >
+          <Heading>{id ? 'Ada cerita apa?' : 'What’s your story?'}</Heading>
+          <Paragraph>{id ? 'Ada waktu untuk ceritamu.' : 'There’s room for your story.'}</Paragraph>
+          <Morii size={moriiSize} animation="wave" />
         </View>
       </View>
     </Screen>

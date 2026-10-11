@@ -1,30 +1,35 @@
 import {
+  createAudioPlayer,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
-  useAudioPlayer,
-  useAudioPlayerStatus,
   useAudioStream,
 } from 'expo-audio';
-import type { AudioStreamBuffer } from 'expo-audio';
+import type { AudioPlayer, AudioStreamBuffer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
-import * as Speech from 'expo-speech';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { parseVoiceConfig, parseVoiceEvent } from '@contracts/voice';
-import type { VoiceCommand, VoiceEvent, VoiceKind, VoiceMode, VoiceTopic } from '@contracts/voice';
+import { parseHarnessConfig, parseHarnessEvent } from '@contracts/harness';
+import type {
+  HarnessActionId,
+  HarnessAnimation,
+  HarnessCommand,
+  HarnessEvent,
+  HarnessPanel,
+} from '@contracts/harness';
+import type { VoiceKind, VoiceMode, VoiceTopic } from '@contracts/voice';
 
+import { HarnessCursor } from './harness-runtime';
 import {
   AudioQueue,
   AudioReply,
   AudioUpload,
-  VoiceCursor,
   captureDurationMs,
   monoPCM,
-  previewExample,
   voiceEndpoints,
 } from './voice-runtime';
-import type { PreviewExample, VoiceLocale } from './voice-runtime';
+import type { VoiceLocale } from './voice-runtime';
 
 type VoiceStatus =
   | 'idle'
@@ -37,7 +42,7 @@ type VoiceStatus =
   | 'error'
   | 'ended';
 
-type VoiceMetrics = Extract<VoiceEvent, { type: 'turn.metrics' }>;
+type VoiceMetrics = Extract<HarnessEvent, { type: 'turn.metrics' }>;
 
 interface Options {
   locale: VoiceLocale;
@@ -53,12 +58,41 @@ interface State {
   remainingTurns: number;
   firstResponseMs: number | null;
   metrics: VoiceMetrics | null;
+  panel: HarnessPanel | null;
+  animation: HarnessAnimation;
+  responseId: string | null;
+  responsePending: boolean;
 }
+
+// Closed sessions retain their status and quota display, their transient content is discarded.
+const clearedContent: Pick<
+  State,
+  | 'transcript'
+  | 'response'
+  | 'firstResponseMs'
+  | 'metrics'
+  | 'panel'
+  | 'animation'
+  | 'responseId'
+  | 'responsePending'
+> = {
+  transcript: '',
+  response: '',
+  firstResponseMs: null,
+  metrics: null,
+  panel: null,
+  animation: 'neutral',
+  responseId: null,
+  responsePending: false,
+};
+
 interface Runtime {
   mounted: boolean;
   // Async completions must match the generation after session or turn work is invalidated.
   generation: number;
-  cursor: VoiceCursor;
+  cursor: HarnessCursor;
+  kind: VoiceKind;
+  responsePending: boolean;
   socket: WebSocket | null;
   request: AbortController | null;
   timer: ReturnType<typeof setTimeout> | null;
@@ -76,10 +110,13 @@ interface Runtime {
   outputTurn: number | null;
   committedAt: number | null;
   playbackStarted: boolean;
+  player: AudioPlayer | null;
+  removePlaybackListener: (() => void) | null;
   audio: AudioReply;
   file: File | null;
 }
 type Failure = 'connection' | 'disabled' | 'permission' | 'audio' | 'protocol' | 'limit' | 'unsafe';
+type TextTurn = { type: 'text'; text: string } | { type: 'action'; actionId: HarnessActionId };
 
 const failures = {
   id: {
@@ -113,11 +150,17 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     remainingTurns: 8,
     firstResponseMs: null,
     metrics: null,
+    panel: null,
+    animation: 'neutral',
+    responseId: null,
+    responsePending: false,
   });
   const runtime = useRef<Runtime>({
     mounted: true,
     generation: 0,
-    cursor: new VoiceCursor(),
+    cursor: new HarnessCursor(),
+    kind: 'preview',
+    responsePending: false,
     socket: null,
     request: null,
     timer: null,
@@ -135,11 +178,11 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     outputTurn: null,
     committedAt: null,
     playbackStarted: false,
+    player: null,
+    removePlaybackListener: null,
     audio: new AudioReply(),
     file: null,
   });
-  const player = useAudioPlayer(null, { updateInterval: 100 });
-  const playback = useAudioPlayerStatus(player);
 
   const update = useCallback((patch: Partial<State>) => {
     if (runtime.current.mounted) setState((previous) => ({ ...previous, ...patch }));
@@ -175,9 +218,13 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     current.audio.clear();
     current.outputTurn = null;
     current.playbackStarted = false;
+    current.removePlaybackListener?.();
+    current.removePlaybackListener = null;
+    const player = current.player;
+    current.player = null;
     try {
-      player.pause();
-      player.replace(null);
+      player?.pause();
+      player?.remove();
     } catch {
       // Expo can release the player before the screen cleanup runs.
     }
@@ -188,18 +235,20 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     } catch {
       // Only synthesized Morii replies use temporary files, captured audio stays in memory.
     }
-    void Speech.stop().catch(() => undefined);
-  }, [player]);
+  }, []);
 
-  const send = useCallback((message: VoiceCommand) => {
+  const send = useCallback((message: HarnessCommand) => {
     const socket = runtime.current.socket;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+    if (socket?.readyState !== WebSocket.OPEN) throw new Error('The session is not connected.');
+    socket.send(JSON.stringify(message));
   }, []);
 
   const close = useCallback(() => {
     const current = runtime.current;
     current.generation += 1;
     current.ready = false;
+    current.responsePending = false;
+    current.committedAt = null;
     current.request?.abort();
     current.request = null;
     stopCapture();
@@ -216,7 +265,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
       socket.onclose = null;
       try {
         if (socket.readyState === WebSocket.OPEN)
-          socket.send(JSON.stringify({ type: 'session.close' }));
+          socket.send(JSON.stringify({ version: 2, type: 'session.close' }));
         socket.close();
       } catch {
         // Local capture and playback are already stopped if the transport has failed.
@@ -227,15 +276,35 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
   const fail = useCallback(
     (failure: Failure) => {
       close();
-      update({ status: 'error', error: failures[locale][failure] });
+      update({
+        ...clearedContent,
+        status: 'error',
+        error: failures[locale][failure],
+      });
     },
     [close, locale, update],
   );
 
   const end = useCallback(() => {
     close();
-    update({ status: 'ended', error: null });
+    update({
+      ...clearedContent,
+      status: 'ended',
+      error: null,
+    });
   }, [close, update]);
+
+  const pause = useCallback(() => {
+    close();
+    update({ ...clearedContent, status: 'paused', error: null });
+  }, [close, update]);
+
+  // Stack routes can lose focus while mounted, capture and transport must stop at that boundary.
+  useFocusEffect(
+    useCallback(() => {
+      return pause;
+    }, [pause]),
+  );
 
   const interrupt = useCallback(() => {
     const current = runtime.current;
@@ -245,70 +314,56 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     current.cursor.cancel(!current.announced);
     current.generation += 1;
     try {
-      if (turnId && current.announced) send({ type: 'turn.cancel', turnId });
+      if (turnId && current.announced)
+        send({ version: 2, type: 'turn.cancel', turnId, generation: current.cursor.generation() });
     } catch {
       fail('connection');
       return;
     }
     current.announced = false;
+    current.responsePending = false;
     current.ready = current.socket?.readyState === WebSocket.OPEN;
-    update({ status: current.ready ? 'ready' : 'paused', firstResponseMs: null });
+    update({
+      status: current.ready ? 'ready' : 'paused',
+      firstResponseMs: null,
+      panel: null,
+      response: '',
+      responseId: null,
+      responsePending: false,
+      animation: 'neutral',
+    });
   }, [clearAudio, fail, send, stopCapture, update]);
 
-  // Scripted text can use a local speech voice, this path never captures or sends audio.
-  const startPreview = useCallback(
-    async (example: PreviewExample) => {
-      close();
-      const generation = runtime.current.generation;
-      const fixture = previewExample(locale, example);
-      update({
-        ...fixture,
-        status: 'ready',
-        kind: 'preview',
-        error: null,
-        firstResponseMs: null,
-        metrics: null,
-        remainingTurns: 8,
+  // A reply enters conversation history only after playback, or explicit preview continuation.
+  const acknowledgePlayed = useCallback(() => {
+    const current = runtime.current;
+    const turnId = current.cursor.current();
+    const responseId = current.cursor.reply();
+    if (!current.responsePending || turnId === null || responseId === null) return;
+    try {
+      send({
+        version: 2,
+        type: 'response.played',
+        turnId,
+        generation: current.cursor.generation(),
+        responseId,
       });
-      if (Platform.OS === 'android') return;
-      try {
-        await Speech.stop();
-        const voices = await Speech.getAvailableVoicesAsync();
-        const voice = voices.find((candidate) => {
-          const language = candidate.language.toLowerCase().replace('_', '-');
-          const local =
-            Platform.OS === 'ios' ||
-            ('localService' in candidate && candidate.localService === true);
-          return local && (language === locale || language.startsWith(`${locale}-`));
-        });
-        if (!voice || generation !== runtime.current.generation || !runtime.current.mounted) return;
-        const finish = () => {
-          if (generation === runtime.current.generation) update({ status: 'ready' });
-        };
-        Speech.speak(fixture.response, {
-          language: locale === 'id' ? 'id-ID' : 'en-US',
-          voice: voice.identifier,
-          rate: 0.9,
-          pitch: 1,
-          onStart() {
-            if (generation === runtime.current.generation) update({ status: 'speaking' });
-          },
-          onDone: finish,
-          onStopped: finish,
-          onError: finish,
-        });
-      } catch {
-        if (generation === runtime.current.generation) update({ status: 'ready' });
-      }
-    },
-    [close, locale, update],
-  );
+      current.responsePending = false;
+      update({ responsePending: false });
+    } catch {
+      fail('connection');
+    }
+  }, [fail, send, update]);
 
   const playReply = useCallback(
     async (bytes: Uint8Array, turnId: number, generation: number) => {
       const current = runtime.current;
+      const responseId = current.cursor.reply();
       const valid = () =>
-        generation === current.generation && current.cursor.current() === turnId && current.mounted;
+        generation === current.generation &&
+        current.cursor.current() === turnId &&
+        current.cursor.reply() === responseId &&
+        current.mounted;
       try {
         await current.audioQueue.run(valid, async () => {
           await setAudioModeAsync({
@@ -325,180 +380,376 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
           current.file = file;
           file.create();
           file.write(bytes);
-          player.replace({ uri: file.uri });
+          // A fresh player makes queued status events from older sources harmless.
+          const player = createAudioPlayer({ uri: file.uri }, { updateInterval: 100 });
+          current.player = player;
+          current.playbackStarted = false;
+          const listener = player.addListener('playbackStatusUpdate', (status) => {
+            if (!valid() || current.player !== player) return;
+            if (status.error || status.mediaServicesDidReset) {
+              fail('audio');
+            } else if (status.didJustFinish && current.playbackStarted) {
+              clearTimer();
+              acknowledgePlayed();
+              clearAudio();
+              if (current.socket?.readyState === WebSocket.OPEN) {
+                current.ready = true;
+                update({ status: 'ready' });
+              }
+            } else if (status.playing && !current.playbackStarted) {
+              current.playbackStarted = true;
+              clearTimer();
+              current.timer = setTimeout(() => {
+                if (valid()) fail('audio');
+              }, 30000);
+              update({
+                status: 'speaking',
+                firstResponseMs:
+                  current.committedAt === null ? null : Date.now() - current.committedAt,
+              });
+              current.committedAt = null;
+            } else if (
+              !status.playing &&
+              current.playbackStarted &&
+              !status.isBuffering &&
+              !(status.duration > 0 && status.currentTime >= status.duration - 0.15)
+            ) {
+              // iOS may report its final position before the separate completion event.
+              pause();
+            }
+          });
+          current.removePlaybackListener = () => {
+            listener.remove();
+          };
+          clearTimer();
+          current.timer = setTimeout(() => {
+            if (valid()) fail('audio');
+          }, 8000);
           player.play();
         });
       } catch {
         if (generation === runtime.current.generation) fail('audio');
       }
     },
-    [fail, player],
+    [acknowledgePlayed, clearAudio, clearTimer, fail, pause, update],
   );
 
-  const startLive = useCallback(async () => {
-    close();
-    if (Platform.OS === 'web') {
-      fail('disabled');
-      return;
-    }
-    const current = runtime.current;
-    const generation = current.generation;
-    current.cursor = new VoiceCursor();
-    current.remainingTurns = 8;
-    update({
-      status: 'connecting',
-      kind: 'live',
-      transcript: '',
-      response: '',
-      error: null,
-      firstResponseMs: null,
-      metrics: null,
-      remainingTurns: 8,
-    });
-    try {
-      const endpoints = voiceEndpoints(process.env.EXPO_PUBLIC_VOICE_API_URL, Platform.OS);
-      const request = new AbortController();
-      current.request = request;
-      current.timer = setTimeout(() => {
-        if (generation === runtime.current.generation) fail('connection');
-      }, 8000);
-      const response = await fetch(endpoints.config, { signal: request.signal });
-      const input: unknown = await response.json();
-      if (generation !== runtime.current.generation || !current.mounted) return;
-      const config = parseVoiceConfig(input);
-      if (!response.ok || !config) {
-        fail('protocol');
+  const requestTextTurn = useCallback(
+    (input: TextTurn) => {
+      const current = runtime.current;
+      if (!current.ready || current.recording || current.starting || current.outputTurn !== null)
+        return;
+      if (input.type === 'action' && input.actionId === 'end_session') {
+        end();
         return;
       }
-      if (!config.liveEnabled) {
+      if (
+        input.type === 'text' &&
+        (current.kind !== 'preview' || !input.text.trim() || input.text.trim().length > 1000)
+      )
+        return;
+      const responseId = current.cursor.reply();
+      if (input.type === 'action' && responseId === null) return;
+      if (current.remainingTurns <= 0) {
+        fail('limit');
+        return;
+      }
+      if (current.kind === 'preview') acknowledgePlayed();
+      if (current.socket?.readyState !== WebSocket.OPEN) return;
+      current.generation += 1;
+      const turnId = current.cursor.begin();
+      const generation = current.cursor.generation();
+      current.ready = false;
+      current.announced = true;
+      current.responsePending = false;
+      current.remainingTurns -= 1;
+      current.committedAt = Date.now();
+      update({
+        status: 'thinking',
+        transcript: '',
+        response: '',
+        panel: null,
+        responseId: null,
+        responsePending: false,
+        animation: 'think',
+        error: null,
+        remainingTurns: current.remainingTurns,
+        metrics: null,
+        firstResponseMs: null,
+      });
+      try {
+        if (input.type === 'text') {
+          send({ version: 2, type: 'turn.text', turnId, generation, text: input.text.trim() });
+        } else if (responseId !== null) {
+          send({
+            version: 2,
+            type: 'turn.action',
+            turnId,
+            generation,
+            responseId,
+            actionId: input.actionId,
+          });
+        }
+        clearTimer();
+        const epoch = current.generation;
+        current.timer = setTimeout(() => {
+          if (epoch === current.generation) fail('connection');
+        }, 30000);
+      } catch {
+        fail('connection');
+      }
+    },
+    [acknowledgePlayed, clearTimer, end, fail, send, update],
+  );
+
+  const submitText = useCallback(
+    (text: string) => {
+      requestTextTurn({ type: 'text', text });
+    },
+    [requestTextTurn],
+  );
+
+  const act = useCallback(
+    (actionId: HarnessActionId) => {
+      requestTextTurn({ type: 'action', actionId });
+    },
+    [requestTextTurn],
+  );
+
+  const dismissPanel = useCallback(() => {
+    const current = runtime.current;
+    const responseId = current.cursor.reply();
+    if (!current.ready || responseId === null) return;
+    try {
+      send({
+        version: 2,
+        type: 'panel.dismiss',
+        responseId,
+        generation: current.cursor.generation(),
+      });
+      update({ panel: null });
+    } catch {
+      fail('connection');
+    }
+  }, [fail, send, update]);
+
+  const connect = useCallback(
+    async (kind: VoiceKind) => {
+      close();
+      if (kind === 'live' && Platform.OS === 'web') {
         fail('disabled');
         return;
       }
-      const socket = new WebSocket(endpoints.socket);
-      current.socket = socket;
-      socket.binaryType = 'arraybuffer';
-      socket.onopen = () => {
-        if (current.socket !== socket) return;
-        try {
-          send({ type: 'session.start', version: 1, locale, mode, topic, adultConfirmed: true });
-        } catch {
-          fail('connection');
-        }
-      };
-      socket.onmessage = (message: { data: unknown }) => {
-        if (runtime.current.socket !== socket) return;
-        try {
-          if (message.data instanceof ArrayBuffer) {
-            if (current.outputTurn === current.cursor.current() && current.outputTurn !== null)
-              current.audio.append(message.data);
-            return;
-          }
-          if (typeof message.data !== 'string') {
-            fail('protocol');
-            return;
-          }
-          const input: unknown = JSON.parse(message.data);
-          // Validate external messages before they can alter session or audio state.
-          const event = parseVoiceEvent(input);
-          if (!event) {
-            fail('protocol');
-            return;
-          }
-          if (!current.cursor.accept(event.sequence, 'turnId' in event ? event.turnId : undefined))
-            return;
-          switch (event.type) {
-            case 'session.ready':
-              clearTimer();
-              if (event.kind !== 'live') {
-                fail('disabled');
-                break;
-              }
-              if (current.sessionTimer !== null) {
-                fail('protocol');
-                break;
-              }
-              current.ready = true;
-              current.remainingTurns = event.limits.maxTurns;
-              current.maxTurnSeconds = event.limits.maxTurnSeconds;
-              current.sessionTimer = setTimeout(end, event.limits.maxSessionSeconds * 1000);
-              update({ status: 'ready', kind: event.kind, remainingTurns: event.limits.maxTurns });
-              break;
-            case 'transcript':
-              update({ transcript: event.text });
-              break;
-            case 'turn.response':
-              update({ response: event.text });
-              break;
-            case 'turn.state':
-              if (
-                event.state !== 'listening' &&
-                !current.recording &&
-                (event.state !== 'ready' || current.outputTurn === null)
-              ) {
-                update({ status: event.state === 'speaking' ? 'thinking' : event.state });
-              }
-              break;
-            case 'audio.start':
-              current.audio.clear();
-              current.outputTurn = event.turnId;
-              break;
-            case 'audio.end':
-              clearTimer();
-              void playReply(current.audio.finish(event.bytes), event.turnId, current.generation);
-              break;
-            case 'turn.cancelled':
-              stopCapture();
-              clearAudio();
-              current.cursor.cancel();
-              current.ready = true;
-              update({ status: 'ready' });
-              break;
-            case 'error':
-              fail(
-                event.code === 'limit'
-                  ? 'limit'
-                  : event.code === 'unsafe'
-                    ? 'unsafe'
-                    : 'connection',
-              );
-              break;
-            case 'session.closed':
-              end();
-              break;
-            case 'turn.metrics':
-              update({ metrics: event });
-              break;
-            case 'turn.audio.accepted':
-              current.upload.acknowledge(event.bytes);
-              break;
-          }
-        } catch {
+      const current = runtime.current;
+      const generation = current.generation;
+      current.cursor = new HarnessCursor();
+      current.kind = kind;
+      current.remainingTurns = 8;
+      update({
+        status: 'connecting',
+        kind,
+        transcript: '',
+        response: '',
+        error: null,
+        firstResponseMs: null,
+        metrics: null,
+        remainingTurns: 8,
+        panel: null,
+        animation: 'neutral',
+        responseId: null,
+        responsePending: false,
+      });
+      try {
+        const endpoints = voiceEndpoints(process.env.EXPO_PUBLIC_VOICE_API_URL, Platform.OS, 2);
+        const request = new AbortController();
+        current.request = request;
+        current.timer = setTimeout(() => {
+          if (generation === runtime.current.generation) fail('connection');
+        }, 8000);
+        const response = await fetch(endpoints.config, { signal: request.signal });
+        const input: unknown = await response.json();
+        if (generation !== runtime.current.generation || !current.mounted) return;
+        const config = parseHarnessConfig(input);
+        if (!response.ok || !config) {
           fail('protocol');
+          return;
         }
-      };
-      socket.onerror = () => {
-        if (runtime.current.socket === socket) fail('connection');
-      };
-      socket.onclose = () => {
-        if (runtime.current.socket === socket) fail('connection');
-      };
-    } catch {
-      if (generation === runtime.current.generation) fail('connection');
-    }
-  }, [
-    clearAudio,
-    clearTimer,
-    close,
-    end,
-    fail,
-    locale,
-    mode,
-    playReply,
-    send,
-    stopCapture,
-    topic,
-    update,
-  ]);
+        if (kind === 'live' && !config.liveEnabled) {
+          fail('disabled');
+          return;
+        }
+        const socket = new WebSocket(endpoints.socket);
+        current.socket = socket;
+        socket.binaryType = 'arraybuffer';
+        socket.onopen = () => {
+          if (current.socket !== socket) return;
+          try {
+            send({
+              type: 'session.start',
+              version: 2,
+              locale,
+              mode,
+              topic,
+              adultConfirmed: kind === 'live',
+            });
+          } catch {
+            fail('connection');
+          }
+        };
+        socket.onmessage = (message: { data: unknown }) => {
+          if (runtime.current.socket !== socket) return;
+          try {
+            if (message.data instanceof ArrayBuffer) {
+              if (current.outputTurn === current.cursor.current() && current.outputTurn !== null)
+                current.audio.append(message.data);
+              return;
+            }
+            if (typeof message.data !== 'string') {
+              fail('protocol');
+              return;
+            }
+            const input: unknown = JSON.parse(message.data);
+            // Validate external messages before they can alter session or audio state.
+            const event = parseHarnessEvent(input);
+            if (!event) {
+              fail('protocol');
+              return;
+            }
+            if (!current.cursor.accept(event)) return;
+            switch (event.type) {
+              case 'session.ready':
+                clearTimer();
+                if (event.kind !== kind) {
+                  fail('disabled');
+                  break;
+                }
+                if (current.sessionTimer !== null) {
+                  fail('protocol');
+                  break;
+                }
+                current.ready = true;
+                current.remainingTurns = event.limits.maxTurns;
+                current.maxTurnSeconds = event.limits.maxTurnSeconds;
+                current.sessionTimer = setTimeout(end, event.limits.maxSessionSeconds * 1000);
+                update({
+                  status: 'ready',
+                  kind: event.kind,
+                  remainingTurns: event.limits.maxTurns,
+                });
+                if (kind === 'preview') {
+                  requestTextTurn({
+                    type: 'text',
+                    text:
+                      locale === 'id'
+                        ? mode === 'practice'
+                          ? 'Bantu aku memulai latihan.'
+                          : 'Bantu aku memilih topik.'
+                        : mode === 'practice'
+                          ? 'Help me start a practice.'
+                          : 'Help me choose a topic.',
+                  });
+                }
+                break;
+              case 'transcript':
+                update({ transcript: event.text });
+                break;
+              case 'turn.response':
+                current.responsePending = true;
+                update({
+                  response: event.text,
+                  panel: event.panel,
+                  animation: event.animation,
+                  responseId: event.responseId,
+                  responsePending: true,
+                });
+                break;
+              case 'turn.state':
+                if (
+                  event.state !== 'listening' &&
+                  !current.recording &&
+                  (event.state !== 'ready' || current.outputTurn === null)
+                ) {
+                  if (event.state === 'ready') {
+                    clearTimer();
+                    current.ready = true;
+                  }
+                  update({ status: event.state === 'speaking' ? 'thinking' : event.state });
+                }
+                break;
+              case 'audio.start':
+                current.audio.clear();
+                current.outputTurn = event.turnId;
+                current.playbackStarted = false;
+                break;
+              case 'audio.end':
+                void playReply(current.audio.finish(event.bytes), event.turnId, current.generation);
+                break;
+              case 'turn.cancelled':
+                stopCapture();
+                clearAudio();
+                current.cursor.cancel();
+                current.ready = true;
+                current.responsePending = false;
+                update({
+                  status: 'ready',
+                  panel: null,
+                  responseId: null,
+                  responsePending: false,
+                  animation: 'neutral',
+                });
+                break;
+              case 'error':
+                fail(
+                  event.code === 'limit'
+                    ? 'limit'
+                    : event.code === 'unsafe'
+                      ? 'unsafe'
+                      : 'connection',
+                );
+                break;
+              case 'session.closed':
+                end();
+                break;
+              case 'turn.metrics':
+                update({ metrics: event });
+                break;
+              case 'turn.audio.accepted':
+                current.upload.acknowledge(event.bytes);
+                break;
+            }
+          } catch {
+            fail('protocol');
+          }
+        };
+        socket.onerror = () => {
+          if (runtime.current.socket === socket) fail('connection');
+        };
+        socket.onclose = () => {
+          if (runtime.current.socket === socket) fail('connection');
+        };
+      } catch {
+        if (generation === runtime.current.generation) fail('connection');
+      }
+    },
+    [
+      clearAudio,
+      clearTimer,
+      close,
+      end,
+      fail,
+      locale,
+      mode,
+      playReply,
+      requestTextTurn,
+      send,
+      stopCapture,
+      topic,
+      update,
+    ],
+  );
+
+  const connectPreview = useCallback(() => connect('preview'), [connect]);
+  const startLive = useCallback(() => connect('live'), [connect]);
 
   const commitTurn = useCallback(async () => {
     const current = runtime.current;
@@ -513,7 +764,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     const generation = current.generation;
     update({ status: 'thinking' });
     try {
-      send({ type: 'turn.commit', turnId });
+      send({ version: 2, type: 'turn.commit', turnId, generation: current.cursor.generation() });
       current.timer = setTimeout(() => {
         if (generation === runtime.current.generation) fail('connection');
       }, 30000);
@@ -534,12 +785,19 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
 
   const startTurn = useCallback(async () => {
     const current = runtime.current;
-    if (!current.ready || current.recording || current.starting || current.outputTurn !== null)
+    if (
+      current.kind !== 'live' ||
+      !current.ready ||
+      current.recording ||
+      current.starting ||
+      current.outputTurn !== null
+    )
       return;
     if (current.remainingTurns <= 0) {
       fail('limit');
       return;
     }
+    current.generation += 1;
     const generation = current.generation;
     current.announced = false;
     const turnId = current.cursor.begin();
@@ -548,6 +806,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     current.starting = true;
     current.waitingForPermission = true;
     current.ready = false;
+    current.responsePending = false;
     update({
       status: 'connecting',
       transcript: '',
@@ -555,6 +814,10 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
       error: null,
       firstResponseMs: null,
       metrics: null,
+      panel: null,
+      animation: 'neutral',
+      responseId: null,
+      responsePending: false,
     });
     try {
       // Permission follows an explicit capture action, never the initial session connection.
@@ -621,8 +884,10 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
         current.sampleRate = buffer.sampleRate;
         current.remainingTurns -= 1;
         send({
+          version: 2,
           type: 'turn.start',
           turnId,
+          generation: current.cursor.generation(),
           sampleRate: buffer.sampleRate,
           channels: 1,
           encoding: 'pcm_s16le',
@@ -646,29 +911,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
       // The OS permission dialog can briefly make the app inactive during capture setup.
       const waitingForPermission = activeRuntime.waitingForPermission;
       if (next === 'background' || (next === 'inactive' && !waitingForPermission)) {
-        close();
-        update({ status: 'paused', error: null });
-      }
-    });
-    const listener = player.addListener('playbackStatusUpdate', (status) => {
-      const current = runtime.current;
-      if (current.outputTurn === null) return;
-      if (status.error || status.mediaServicesDidReset) {
-        fail('audio');
-      } else if (status.didJustFinish) {
-        clearAudio();
-        current.ready = true;
-        update({ status: 'ready' });
-      } else if (status.playing) {
-        current.playbackStarted = true;
-        // Latency ends when playback begins, rather than when reply bytes arrive.
-        if (current.committedAt !== null) {
-          update({ firstResponseMs: Date.now() - current.committedAt });
-          current.committedAt = null;
-        }
-      } else if (current.playbackStarted && !status.isBuffering) {
-        close();
-        update({ status: 'paused' });
+        pause();
       }
     });
     const captureListener =
@@ -687,18 +930,18 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     return () => {
       activeRuntime.mounted = false;
       background.remove();
-      listener.remove();
       captureListener?.remove();
       bufferListener?.remove();
       close();
     };
-  }, [clearAudio, close, fail, player, stream, update]);
+  }, [close, fail, pause, stream]);
 
-  const status: VoiceStatus = playback.playing && state.kind === 'live' ? 'speaking' : state.status;
   return {
     ...state,
-    status,
-    startPreview,
+    connectPreview,
+    submitText,
+    act,
+    dismissPanel,
     startLive,
     startTurn,
     commitTurn,
