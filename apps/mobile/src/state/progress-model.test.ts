@@ -56,6 +56,41 @@ void test('a saved record round-trips only version, locale, and self-reported co
   assert.deepEqual(Object.keys(progress).sort(), ['completions', 'locale', 'version']);
 });
 
+void test('a completed original path keeps progress and unlocks listener practice after hydration', () => {
+  const originalIds = learningLessons.slice(0, 8).map((lesson) => lesson.id);
+  const saved = decodeProgress(
+    JSON.stringify({
+      ...emptyProgress(),
+      completions: { id: originalIds, en: originalIds.slice(0, 4) },
+    }),
+  );
+  assert.ok(saved);
+  const state = progressReducer(initialProgressState(), {
+    type: 'hydrate',
+    saved,
+    unavailable: false,
+  });
+  assert.deepEqual(state.progress.completions.id, originalIds);
+  assert.equal(nextLesson(state.progress.completions.id)?.id, 'listener-awareness-1');
+  assert.equal(nextLesson(state.progress.completions.en)?.id, 'clear-explanation-1');
+  assert.equal(canStartLesson('presentation-practice-1', state.progress.completions.id), false);
+});
+
+void test('new stages require earlier practices and all sixteen completions survive reload', () => {
+  const earlierIds = learningLessons.slice(0, 12).map((lesson) => lesson.id);
+  assert.equal(nextLesson(earlierIds)?.id, 'presentation-practice-1');
+  assert.equal(canStartLesson('presentation-practice-1', earlierIds), true);
+  assert.equal(canStartLesson('presentation-practice-2', earlierIds), false);
+  const allIds = learningLessons.map((lesson) => lesson.id);
+  const saved = decodeProgress(
+    JSON.stringify({ ...emptyProgress(), completions: { id: allIds, en: [] } }),
+  );
+  assert.ok(saved);
+  assert.deepEqual(saved.completions.id, allIds);
+  assert.equal(nextLesson(saved.completions.id), undefined);
+  assert.equal(nextLesson(saved.completions.en)?.id, 'clear-idea-1');
+});
+
 void test('malformed, oversized, and future-version storage cannot hydrate state', () => {
   for (const raw of [
     null,

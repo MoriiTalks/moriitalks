@@ -58,7 +58,7 @@ export function HomeScreen() {
         >
           <Heading>{id ? 'Siap bicara?' : 'Ready to speak?'}</Heading>
           <Paragraph>
-            {id ? 'Satu ide, selangkah lebih jelas.' : 'One idea, a little clearer.'}
+            {id ? 'Latihan berbicara dan presentasi.' : 'Practice explaining and presenting.'}
           </Paragraph>
           <Morii size={moriiSize} animation="wave" />
         </View>

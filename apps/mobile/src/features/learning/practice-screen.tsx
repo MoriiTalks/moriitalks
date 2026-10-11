@@ -123,7 +123,7 @@ export function PracticeScreen() {
               }}
             >
               <View
-                className={`flex-row items-center gap-3 rounded-[24px] px-4 py-4 ${index === 0 ? 'bg-mint' : 'bg-lilac'}`}
+                className={`flex-row items-center gap-3 rounded-3xl px-4 py-4 ${index % 2 === 0 ? 'bg-mint' : 'bg-lilac'}`}
               >
                 <View className="min-w-0 flex-1 gap-0.5">
                   <Text className="text-sm font-medium text-muted">

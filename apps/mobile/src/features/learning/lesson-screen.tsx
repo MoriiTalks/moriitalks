@@ -11,47 +11,14 @@ import { Morii } from '@/components/morii';
 import { BackButton } from '@/components/navigation';
 import { Screen } from '@/components/screen';
 import { Note, Paragraph, Title } from '@/components/typography';
+import { LessonExerciseView } from '@/features/learning/lesson-exercise';
+import { LessonOption } from '@/features/learning/lesson-option';
+import { isSequenceCorrect, toggleSequenceCard } from '@/features/learning/sequence-model';
 import { useLessonSpeech } from '@/features/learning/use-lesson-speech';
 import { useApp } from '@/state/app-context';
 import { canStartLesson } from '@/state/progress-model';
 
 type LessonStep = 'baseline' | 'example' | 'task' | 'speak' | 'check' | 'retry' | 'complete';
-
-// A retry returns to the speaking phase instead of suggesting a new lesson or score.
-const lessonPhases: Record<LessonStep, number> = {
-  baseline: 0,
-  example: 0,
-  task: 1,
-  speak: 2,
-  check: 3,
-  retry: 2,
-  complete: 4,
-};
-
-function LessonOption({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      aria-checked={selected}
-      onPress={onPress}
-      className={`min-h-17 flex-row items-center gap-4 rounded-[24px] border-2 border-b-4 px-5 py-4 active:bg-mint ${selected ? 'border-teal bg-mint' : 'border-line bg-surface'}`}
-    >
-      <View className="size-5 items-center justify-center rounded-full border-2 border-teal">
-        {selected && <View className="size-2.5 rounded-full bg-teal" />}
-      </View>
-      <Text className="min-w-0 flex-1 text-lg leading-7 font-medium text-ink">{label}</Text>
-    </Pressable>
-  );
-}
 
 // Direct links follow the same unlock rules as the path, malformed IDs cannot select arbitrary content.
 export function LessonRoute() {
@@ -96,37 +63,64 @@ export function LessonRoute() {
   return <LessonScreen key={`${locale}:${lesson.id}`} lesson={lesson} />;
 }
 
-// A lesson combines recognition with an independent spoken attempt, only the learner reports completion.
+// Every lesson includes two spoken contexts, preparation checks never act as skill assessments.
 function LessonScreen({ lesson }: { lesson: LearningLesson }) {
   const { locale, completeMission, progressStorageStatus } = useApp();
   const [step, setStep] = useState<LessonStep>(lesson.baseline ? 'baseline' : 'example');
   const [selectedOption, setSelectedOption] = useState<number | undefined>();
+  const [selectedCards, setSelectedCards] = useState<number[]>([]);
+  const [sequenceChecked, setSequenceChecked] = useState(false);
+  const [practiceIndex, setPracticeIndex] = useState<0 | 1>(0);
   const [selfCheck, setSelfCheck] = useState<'yes' | 'not-yet' | undefined>();
   const [showExampleTip, setShowExampleTip] = useState(false);
+  const [showPracticeHint, setShowPracticeHint] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const speech = useLessonSpeech(locale);
   const id = locale === 'id';
   const copy = lesson.locales[locale];
-  const correct = selectedOption === copy.correctOption;
+  const exercise = copy.exercise;
+  const practice = copy.practices[practiceIndex];
+  const correct =
+    exercise.kind === 'choice'
+      ? selectedOption === exercise.correctOption
+      : exercise.kind === 'sequence' && isSequenceCorrect(selectedCards, exercise.items.length);
   const speechActive = speech.state === 'starting' || speech.state === 'speaking';
+  const lessonPhases: Record<LessonStep, number> = {
+    baseline: 0,
+    example: 0,
+    task: 0,
+    speak: 1 + practiceIndex * 2,
+    check: 2 + practiceIndex * 2,
+    retry: 1 + practiceIndex * 2,
+    complete: 5,
+  };
   const phase = lessonPhases[step];
   const speakingStep = step === 'baseline' || step === 'speak' || step === 'retry';
   const centeredHeader = speakingStep || step === 'complete';
 
   const headings: Record<LessonStep, string> = {
-    baseline: id ? 'Mulai dengan caramu.' : 'Start in your own way.',
+    baseline: id ? 'Coba sebelum melihat contoh' : 'Try before seeing the example',
     example: copy.title,
-    task: copy.question,
-    speak: id ? 'Sekarang giliranmu.' : 'Now, your turn.',
-    check: copy.selfCheck,
-    retry: id ? 'Coba satu bagian lagi.' : 'Try one part again.',
-    complete: id ? 'Latihan sudah kamu coba.' : 'You gave the practice a try.',
+    task: exercise.kind === 'speak' ? copy.title : exercise.question,
+    speak: id ? 'Praktik berbicara' : 'Speaking practice',
+    check: practice.selfCheck,
+    retry: id ? 'Coba lagi' : 'Try again',
+    complete: id ? 'Latihan selesai' : 'Practice complete',
   };
   const labels: Record<LessonStep, string> = {
     baseline: id ? 'Mulai' : 'Start',
     example: id ? 'Contoh' : 'Example',
-    task: id ? 'Pilih' : 'Choose',
-    speak: id ? 'Coba' : 'Try',
+    task:
+      exercise.kind === 'sequence'
+        ? id
+          ? 'Susun urutan'
+          : 'Put in order'
+        : id
+          ? 'Pahami contoh'
+          : 'Understand the example',
+    speak: id
+      ? `Praktik ${String(practiceIndex + 1)} dari 2`
+      : `Practice ${String(practiceIndex + 1)} of 2`,
     check: id ? 'Periksa' : 'Check',
     retry: id ? 'Coba lagi' : 'Try again',
     complete: id ? 'Selesai' : 'Complete',
@@ -135,17 +129,33 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
     baseline: id ? 'Aku sudah mencoba' : 'I gave it a try',
     example: id ? 'Lanjut' : 'Continue',
     task:
-      selectedOption === undefined
-        ? id
-          ? 'Pilih satu jawaban'
-          : 'Choose an answer'
-        : !correct
+      exercise.kind === 'sequence'
+        ? sequenceChecked
+          ? correct
+            ? id
+              ? 'Mulai praktik'
+              : 'Start speaking'
+            : id
+              ? 'Susun ulang'
+              : 'Try another order'
+          : selectedCards.length === exercise.items.length
+            ? id
+              ? 'Periksa urutan'
+              : 'Check the order'
+            : id
+              ? 'Pilih semua kalimat'
+              : 'Choose all sentences'
+        : selectedOption === undefined
           ? id
-            ? 'Coba pilihan lain'
-            : 'Try another choice'
-          : id
-            ? 'Sekarang giliranku'
-            : 'My turn',
+            ? 'Pilih satu jawaban'
+            : 'Choose an answer'
+          : !correct
+            ? id
+              ? 'Coba pilihan lain'
+              : 'Try another choice'
+            : id
+              ? 'Mulai praktik'
+              : 'Start speaking',
     speak: id ? 'Aku sudah mencoba' : 'I gave it a try',
     check:
       selfCheck === undefined
@@ -154,11 +164,15 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
           : 'Choose what fits'
         : selfCheck === 'not-yet'
           ? id
-            ? 'Coba satu bagian lagi'
-            : 'Try one part again'
+            ? 'Coba lagi'
+            : 'Try again'
           : id
-            ? 'Selesai latihan'
-            : 'Finish practice',
+            ? practiceIndex === 0
+              ? 'Lanjut praktik'
+              : 'Selesai latihan'
+            : practiceIndex === 0
+              ? 'Next practice'
+              : 'Finish practice',
     retry: id ? 'Sudah mencoba lagi' : 'I tried again',
     complete: id ? 'Kembali ke latihan' : 'Back to practice',
   };
@@ -180,26 +194,46 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
     changeStep('complete');
   }
 
+  function advancePractice() {
+    if (practiceIndex === 1) {
+      finish();
+      return;
+    }
+    setPracticeIndex(1);
+    setSelfCheck(undefined);
+    setShowPracticeHint(false);
+    changeStep('speak');
+  }
+
   function next() {
     switch (step) {
       case 'baseline':
         changeStep('example');
         break;
       case 'example':
-        changeStep('task');
+        changeStep(exercise.kind === 'speak' ? 'speak' : 'task');
         break;
       case 'task':
+        if (exercise.kind === 'sequence' && !sequenceChecked) {
+          setSequenceChecked(true);
+          break;
+        }
+        if (exercise.kind === 'sequence' && !correct) {
+          setSelectedCards([]);
+          setSequenceChecked(false);
+          break;
+        }
         if (correct) changeStep('speak');
         break;
       case 'speak':
         changeStep('check');
         break;
       case 'check':
-        if (selfCheck === 'yes') finish();
+        if (selfCheck === 'yes') advancePractice();
         else if (selfCheck === 'not-yet') changeStep('retry');
         break;
       case 'retry':
-        finish();
+        advancePractice();
         break;
       case 'complete':
         router.replace('/practice');
@@ -213,7 +247,14 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
       footer={
         <Button
           onPress={next}
-          disabled={(step === 'task' && !correct) || (step === 'check' && selfCheck === undefined)}
+          disabled={
+            (step === 'task' &&
+              (exercise.kind === 'choice'
+                ? !correct
+                : exercise.kind === 'sequence' &&
+                  selectedCards.length !== exercise.items.length)) ||
+            (step === 'check' && selfCheck === undefined)
+          }
         >
           {actions[step]}
         </Button>
@@ -227,13 +268,13 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
           accessibilityLabel={id ? 'Alur latihan' : 'Lesson progress'}
           accessibilityValue={{
             min: 0,
-            max: 4,
+            max: 5,
             now: phase,
             text: labels[step],
           }}
           className="min-w-0 flex-1 flex-row gap-1.5"
         >
-          {[0, 1, 2, 3].map((segment) => (
+          {[0, 1, 2, 3, 4].map((segment) => (
             <View
               key={segment}
               className={`h-2.5 flex-1 rounded-full ${segment < phase ? 'bg-teal' : segment === phase ? 'bg-mint-strong' : 'bg-line'}`}
@@ -244,7 +285,7 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
       <View className={centeredHeader ? 'items-center gap-4' : 'gap-3'}>
         {centeredHeader && (
           <Morii
-            size={176}
+            size={144}
             pose={step === 'complete' ? 'encourage' : 'listen'}
             animation={step === 'complete' ? 'encourage' : 'neutral'}
           />
@@ -319,64 +360,73 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
         </View>
       )}
 
-      {step === 'task' && (
+      {step === 'task' && exercise.kind !== 'speak' && (
         <View className="gap-3">
-          <View accessibilityRole="radiogroup" accessibilityLabel={copy.question} className="gap-3">
-            {copy.options.map((option, index) => (
-              <LessonOption
-                key={option}
-                label={option}
-                selected={selectedOption === index}
-                onPress={() => {
-                  setSelectedOption(index);
-                }}
-              />
-            ))}
-          </View>
-          {selectedOption !== undefined && (
-            <View
-              accessibilityLiveRegion="polite"
-              className={`flex-row items-start gap-3 rounded-[24px] p-5 ${correct ? 'bg-mint' : 'bg-peach'}`}
-            >
-              <Icon name={correct ? 'check' : 'info'} />
-              <View className="min-w-0 flex-1">
-                <Paragraph>{correct ? copy.taskSuccess : copy.taskHint}</Paragraph>
-              </View>
-            </View>
-          )}
-          {selectedOption !== undefined && !correct && (
-            <Button
-              variant="secondary"
-              onPress={() => {
-                changeStep('example');
-              }}
-            >
-              {id ? 'Lihat contoh lagi' : 'See the example again'}
-            </Button>
-          )}
+          <LessonExerciseView
+            exercise={exercise}
+            selectedOption={selectedOption}
+            onSelectOption={setSelectedOption}
+            selectedCards={selectedCards}
+            onSelectCard={(index) => {
+              setSelectedCards((selection) => toggleSequenceCard(selection, index));
+              setSequenceChecked(false);
+            }}
+            sequenceChecked={sequenceChecked}
+            indonesian={id}
+          />
+          <Button
+            variant="secondary"
+            onPress={() => {
+              changeStep('speak');
+            }}
+          >
+            {id ? 'Langsung praktik' : 'Go straight to speaking'}
+          </Button>
         </View>
       )}
 
       {speakingStep && (
         <View className="gap-4">
           <View className="gap-5 rounded-[28px] border border-line bg-surface p-6">
-            <Text className="text-xl leading-8 font-medium text-ink">
-              {step === 'retry' ? copy.retry : copy.prompt}
-            </Text>
-            {step === 'speak' && copy.starter !== '' && (
+            <Text className="text-xl leading-8 font-medium text-ink">{practice.prompt}</Text>
+            {step === 'retry' && <Paragraph>{copy.retry}</Paragraph>}
+            {step !== 'baseline' && practice.starter !== '' && (
+              <Button
+                variant="secondary"
+                expanded={showPracticeHint}
+                onPress={() => {
+                  setShowPracticeHint(!showPracticeHint);
+                }}
+              >
+                {showPracticeHint
+                  ? id
+                    ? 'Tutup bantuan'
+                    : 'Hide help'
+                  : id
+                    ? 'Lihat bantuan'
+                    : 'Show help'}
+              </Button>
+            )}
+            {step !== 'baseline' && showPracticeHint && practice.starter !== '' && (
               <View className="rounded-[20px] bg-mint p-4">
-                <Text className="text-lg leading-7 font-medium text-teal">{copy.starter}</Text>
+                <Text className="text-lg leading-7 font-medium text-teal">{practice.starter}</Text>
               </View>
             )}
           </View>
           <Note>
             {id
-              ? 'Ucapkan dengan lantang. Mikrofon mati, ucapanmu belum dinilai.'
-              : 'Speak out loud. The microphone is off, your speech has not been assessed.'}
+              ? 'Ucapkan dengan suara yang nyaman. Praktik ini tidak direkam atau dinilai.'
+              : 'Speak at a comfortable volume. This practice is not recorded or assessed.'}
           </Note>
           {step === 'retry' && (
-            <Button variant="secondary" onPress={finish}>
-              {id ? 'Cukup untuk sekarang' : 'Enough for now'}
+            <Button variant="secondary" onPress={advancePractice}>
+              {id
+                ? practiceIndex === 0
+                  ? 'Lanjut praktik'
+                  : 'Selesai latihan'
+                : practiceIndex === 0
+                  ? 'Next practice'
+                  : 'Finish practice'}
             </Button>
           )}
         </View>
@@ -386,11 +436,11 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
         <View className="gap-4">
           <View
             accessibilityRole="radiogroup"
-            accessibilityLabel={copy.selfCheck}
+            accessibilityLabel={practice.selfCheck}
             className="gap-3"
           >
             <LessonOption
-              label={id ? 'Ya, sudah kucoba' : 'Yes, I tried that'}
+              label={id ? 'Ya, sudah saya coba' : 'Yes, I tried that'}
               selected={selfCheck === 'yes'}
               onPress={() => {
                 setSelfCheck('yes');
@@ -413,15 +463,15 @@ function LessonScreen({ lesson }: { lesson: LearningLesson }) {
           <Note>
             {progressStorageStatus === 'unavailable'
               ? id
-                ? 'Selesai menurutmu. Progres belum tersimpan di perangkat ini.'
-                : 'Marked complete by you. Progress could not be saved on this device.'
+                ? 'Catatan latihan belum tersimpan di perangkat ini.'
+                : 'Your practice record could not be saved on this device.'
               : progressStorageStatus === 'saving'
                 ? id
-                  ? 'Selesai menurutmu. Menyimpan progres…'
-                  : 'Marked complete by you. Saving progress…'
+                  ? 'Menyimpan catatan latihan…'
+                  : 'Saving your practice record…'
                 : id
-                  ? 'Kamu menandai selesai. Ini bukan nilai kemampuan.'
-                  : 'Marked complete by you. This is not a skill score.'}
+                  ? 'Ini catatan praktik, bukan penilaian kemampuan.'
+                  : 'This is a practice record, not a skill assessment.'}
           </Note>
           <Button
             variant="secondary"
