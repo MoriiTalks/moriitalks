@@ -1,30 +1,30 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Screen } from '@/components/screen';
+import { Sheet } from '@/components/sheet';
 import { Heading, Note, Title } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
-// Updates the in-memory locale and exposes the separate adult voice lab.
+// Keeps language, local practice information, and adult testing separate from lessons.
 export function SettingsScreen() {
-  const { locale, setLocale } = useApp();
+  const { locale, setLocale, progressStorageStatus, resetPracticeProgress } = useApp();
+  const [showReset, setShowReset] = useState(false);
   const id = locale === 'id';
   return (
     <Screen navigation>
       <View className="gap-2 pt-3">
-        <Heading>{id ? 'Ruangmu.' : 'Your space.'}</Heading>
-        <Note>
-          {id
-            ? 'Sedikit pengaturan, lalu lanjut cerita.'
-            : 'A few preferences, then back to your story.'}
-        </Note>
+        <Heading>{id ? 'Pengaturan' : 'Settings'}</Heading>
+        <Note>{id ? 'Pilih bahasa latihanmu.' : 'Choose your practice language.'}</Note>
       </View>
       <Card>
         <Title>{id ? 'Bahasa' : 'Language'}</Title>
         <View className="gap-2">
           <Button
+            disabled={progressStorageStatus === 'loading'}
             selected={id}
             variant={id ? 'primary' : 'secondary'}
             onPress={() => {
@@ -34,6 +34,7 @@ export function SettingsScreen() {
             Bahasa Indonesia
           </Button>
           <Button
+            disabled={progressStorageStatus === 'loading'}
             selected={!id}
             variant={!id ? 'primary' : 'secondary'}
             onPress={() => {
@@ -48,18 +49,30 @@ export function SettingsScreen() {
         <Title>{id ? 'Tentang versi ini' : 'About this version'}</Title>
         <Text className="text-sm leading-6 text-muted">
           {id
-            ? 'Obrolan dengan Morii memakai contoh tertulis yang terprogram, belum AI langsung. Latihan mandiri tidak memakai mikrofon.'
-            : 'Talk with Morii uses scripted text examples, not live AI. Independent practice does not use your microphone.'}
+            ? 'Latihan memakai materi yang tersedia di perangkat. Contoh suara dapat diputar ulang. Selesai latihan adalah catatan percobaanmu, bukan nilai kemampuan.'
+            : 'Practice uses bundled lessons with replayable spoken examples. Completion records your attempt, not a skill score.'}
         </Text>
         <Note>
-          {id
-            ? 'Bahasa dan catatan latihan tersimpan selama sesi aplikasi ini.'
-            : 'Language and practice notes last for this app session.'}
+          {progressStorageStatus === 'loading'
+            ? id
+              ? 'Memuat catatan di perangkat…'
+              : 'Loading local practice…'
+            : progressStorageStatus === 'saving'
+              ? id
+                ? 'Menyimpan catatan di perangkat…'
+                : 'Saving practice on this device…'
+              : progressStorageStatus === 'unavailable'
+                ? id
+                  ? 'Penyimpanan belum tersedia. Catatan baru hanya berlaku selama aplikasi terbuka.'
+                  : 'Storage is unavailable. New practice records last for this app session.'
+                : id
+                  ? 'Bahasa dan latihan yang selesai tersimpan di perangkat, terpisah untuk setiap bahasa.'
+                  : 'Language and completed lessons stay on this device, separately for each language.'}
         </Note>
         <Text className="text-sm leading-6 text-muted">
           {id
-            ? 'Uji suara AI di aplikasi native hanya untuk penguji dewasa, dan harus diaktifkan.'
-            : 'Native AI voice testing is for adult testers and must be enabled.'}
+            ? 'Morii memiliki contoh percakapan terprogram. Percakapan AI langsung memerlukan konfigurasi server dan opt-in penguji dewasa.'
+            : 'Morii includes scripted conversation examples. Live AI needs a configured server and adult tester opt-in.'}
         </Text>
         <Button
           variant="secondary"
@@ -70,7 +83,46 @@ export function SettingsScreen() {
           {id ? 'Uji suara untuk dewasa' : 'Voice test for adults'}
         </Button>
       </Card>
+      <Button
+        variant="secondary"
+        disabled={progressStorageStatus === 'loading'}
+        onPress={() => {
+          setShowReset(true);
+        }}
+      >
+        {id ? 'Hapus catatan latihan' : 'Clear practice records'}
+      </Button>
       <Note>MoriiTalks · 0.1.0</Note>
+      <Sheet
+        visible={showReset}
+        title={id ? 'Mulai dari awal?' : 'Start fresh?'}
+        closeLabel={id ? 'Batal' : 'Cancel'}
+        onClose={() => {
+          setShowReset(false);
+        }}
+      >
+        <Note>
+          {id
+            ? 'Catatan latihan Indonesia dan Inggris di perangkat ini akan dihapus. Bahasa pilihanmu tetap sama.'
+            : 'Indonesian and English practice records on this device will be cleared. Your language preference stays the same.'}
+        </Note>
+        <Button
+          onPress={() => {
+            resetPracticeProgress();
+            setShowReset(false);
+          }}
+        >
+          {id ? 'Hapus catatan' : 'Clear records'}
+        </Button>
+        <Button
+          variant="secondary"
+          onPress={() => {
+            setShowReset(false);
+          }}
+        >
+          {id ? 'Batal' : 'Cancel'}
+        </Button>
+      </Sheet>
     </Screen>
   );
 }

@@ -1,2 +1,2 @@
-// Scripted conversation preview route, microphone capture is not used.
+// Quiet conversation route, live adult testing requires explicit opt-in before connection.
 export { TalkScreen as default } from '@/features/session/talk-screen';

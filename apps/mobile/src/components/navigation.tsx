@@ -32,10 +32,14 @@ export function Navigation() {
   const pathname = usePathname();
   const { locale } = useApp();
   const items = [
-    { path: '/', icon: 'home', label: locale === 'id' ? 'Beranda' : 'Home' },
-    { path: '/progress', icon: 'progress', label: locale === 'id' ? 'Latihan' : 'Practice' },
+    { path: '/practice', icon: 'practice', label: locale === 'id' ? 'Latihan' : 'Practice' },
+    { path: '/talk', icon: 'chat', label: 'Morii' },
     { path: '/settings', icon: 'settings', label: locale === 'id' ? 'Pengaturan' : 'Settings' },
-  ] satisfies readonly { path: '/' | '/progress' | '/settings'; icon: IconName; label: string }[];
+  ] satisfies readonly {
+    path: '/practice' | '/talk' | '/settings';
+    icon: IconName;
+    label: string;
+  }[];
 
   return (
     <View
@@ -43,7 +47,8 @@ export function Navigation() {
       className="mx-5 mb-3 flex-row gap-1 rounded-[28px] border border-line bg-surface p-1.5"
     >
       {items.map((item) => {
-        const active = pathname === item.path;
+        const active =
+          pathname === item.path || (item.path === '/practice' && pathname === '/progress');
 
         return (
           <Pressable

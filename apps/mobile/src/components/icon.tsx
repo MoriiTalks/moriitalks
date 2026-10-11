@@ -16,6 +16,7 @@ export type IconName =
   | 'progress'
   | 'settings'
   | 'check'
+  | 'lock'
   | 'arrow';
 
 const paths: Record<IconName, string> = {
@@ -33,6 +34,7 @@ const paths: Record<IconName, string> = {
   progress: 'M5 19v-5M12 19V9M19 19V4M3 22h18',
   settings: 'M4 7h16M4 17h16M9 4v6M16 14v6',
   check: 'm5 12 4 4L19 6',
+  lock: 'M6 10h12v11H6ZM8 10V6a4 4 0 0 1 8 0v4M12 14v3',
   arrow: 'M4 12h16m-6-6 6 6-6 6',
 };
 

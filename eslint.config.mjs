@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 // Type-aware rules cover owned source, generated files are excluded below.
-const sourceFiles = ['apps/mobile/src/**/*.{ts,tsx}', 'packages/contracts/*.ts'];
+const sourceFiles = ['apps/mobile/src/**/*.{ts,tsx}', 'content/**/*.ts', 'packages/contracts/*.ts'];
 
 // Enforce the repository's comment punctuation without relying on editor-specific settings.
 const comments = {

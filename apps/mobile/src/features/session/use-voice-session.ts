@@ -7,6 +7,7 @@ import {
 import type { AudioPlayer, AudioStreamBuffer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import { useFocusEffect } from 'expo-router';
+import * as Speech from 'expo-speech';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
@@ -21,6 +22,7 @@ import type {
 import type { VoiceKind, VoiceMode, VoiceTopic } from '@contracts/voice';
 
 import { HarnessCursor } from './harness-runtime';
+import { PreviewPlayback } from './preview-playback';
 import {
   AudioQueue,
   AudioReply,
@@ -110,6 +112,7 @@ interface Runtime {
   outputTurn: number | null;
   committedAt: number | null;
   playbackStarted: boolean;
+  previewPlayback: boolean;
   player: AudioPlayer | null;
   removePlaybackListener: (() => void) | null;
   audio: AudioReply;
@@ -126,7 +129,7 @@ const failures = {
     audio: 'Suara belum bisa diputar atau direkam. Mikrofon sudah dimatikan.',
     protocol: 'Sesi belum bisa dilanjutkan. Mikrofon sudah dimatikan. Coba mulai kembali.',
     limit: 'Batas sesi ini sudah tercapai. Berhenti sejenak sebelum sesi berikutnya.',
-    unsafe: 'Morii belum bisa membantu topik ini. Kamu bisa mencoba cerita tentang hobi.',
+    unsafe: 'Morii belum bisa membantu topik ini. Kita bisa berlatih menjelaskan ide sederhana.',
   },
   en: {
     connection: 'The connection stopped. Your microphone is off. Try again when ready.',
@@ -135,7 +138,7 @@ const failures = {
     audio: 'Audio could not play or record. Your microphone is off.',
     protocol: 'This session could not continue. Your microphone is off. Try starting again.',
     limit: 'You reached this session’s limit. Take a break before your next session.',
-    unsafe: 'Morii cannot help with this topic. You can try a story about a hobby.',
+    unsafe: 'Morii cannot help with this topic. We can practice explaining a simple idea.',
   },
 };
 
@@ -178,11 +181,28 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     outputTurn: null,
     committedAt: null,
     playbackStarted: false,
+    previewPlayback: false,
     player: null,
     removePlaybackListener: null,
     audio: new AudioReply(),
     file: null,
   });
+  const speechLocale = useRef(locale);
+  const previewSpeech = useRef(
+    new PreviewPlayback({
+      stop: Speech.stop,
+      speak: (text, language, callbacks) => {
+        Speech.speak(text, {
+          language,
+          rate: 0.95,
+          onStart: callbacks.started,
+          onDone: callbacks.finished,
+          onError: callbacks.failed,
+          onStopped: callbacks.failed,
+        });
+      },
+    }),
+  );
 
   const update = useCallback((patch: Partial<State>) => {
     if (runtime.current.mounted) setState((previous) => ({ ...previous, ...patch }));
@@ -215,6 +235,8 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
 
   const clearAudio = useCallback(() => {
     const current = runtime.current;
+    current.previewPlayback = false;
+    previewSpeech.current.stop();
     current.audio.clear();
     current.outputTurn = null;
     current.playbackStarted = false;
@@ -299,6 +321,12 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
     update({ ...clearedContent, status: 'paused', error: null });
   }, [close, update]);
 
+  useEffect(() => {
+    const previous = speechLocale.current;
+    speechLocale.current = locale;
+    if (previous !== locale) pause();
+  }, [locale, pause]);
+
   // Stack routes can lose focus while mounted, capture and transport must stop at that boundary.
   useFocusEffect(
     useCallback(() => {
@@ -354,6 +382,59 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
       fail('connection');
     }
   }, [fail, send, update]);
+
+  const playPreview = useCallback(
+    (text: string, responseId: string) => {
+      const current = runtime.current;
+      const generation = current.generation;
+      const valid = () =>
+        current.mounted &&
+        generation === current.generation &&
+        current.cursor.reply() === responseId &&
+        current.previewPlayback;
+      const unread = () => {
+        if (!valid()) return;
+        clearTimer();
+        current.previewPlayback = false;
+        current.ready = true;
+        update({
+          status: 'ready',
+          error:
+            locale === 'id'
+              ? 'Suara contoh belum bisa diputar. Baca jawaban Morii untuk melanjutkan.'
+              : 'The example voice could not play. Read Morii’s reply to continue.',
+        });
+      };
+      current.previewPlayback = true;
+      current.ready = false;
+      clearTimer();
+      const timedOut = () => {
+        if (!valid()) return;
+        unread();
+        previewSpeech.current.stop();
+      };
+      current.timer = setTimeout(timedOut, 8000);
+      previewSpeech.current.play(text, locale === 'id' ? 'id-ID' : 'en-US', {
+        started: () => {
+          if (!valid()) return;
+          clearTimer();
+          current.timer = setTimeout(timedOut, 30000);
+          update({ status: 'speaking' });
+        },
+        finished: () => {
+          if (!valid()) return;
+          clearTimer();
+          current.previewPlayback = false;
+          acknowledgePlayed();
+          if (generation !== current.generation) return;
+          current.ready = current.socket?.readyState === WebSocket.OPEN;
+          update({ status: current.ready ? 'ready' : 'paused' });
+        },
+        failed: unread,
+      });
+    },
+    [acknowledgePlayed, clearTimer, locale, update],
+  );
 
   const playReply = useCallback(
     async (bytes: Uint8Array, turnId: number, generation: number) => {
@@ -443,11 +524,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
         end();
         return;
       }
-      if (
-        input.type === 'text' &&
-        (current.kind !== 'preview' || !input.text.trim() || input.text.trim().length > 1000)
-      )
-        return;
+      if (input.type === 'text' && (!input.text.trim() || input.text.trim().length > 1000)) return;
       const responseId = current.cursor.reply();
       if (input.type === 'action' && responseId === null) return;
       if (current.remainingTurns <= 0) {
@@ -643,10 +720,10 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
                       locale === 'id'
                         ? mode === 'practice'
                           ? 'Bantu aku memulai latihan.'
-                          : 'Bantu aku memilih topik.'
+                          : 'Halo, Morii.'
                         : mode === 'practice'
                           ? 'Help me start a practice.'
-                          : 'Help me choose a topic.',
+                          : 'Hi, Morii.',
                   });
                 }
                 break;
@@ -662,12 +739,14 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
                   responseId: event.responseId,
                   responsePending: true,
                 });
+                if (kind === 'preview') playPreview(event.text, event.responseId);
                 break;
               case 'turn.state':
                 if (
                   event.state !== 'listening' &&
                   !current.recording &&
-                  (event.state !== 'ready' || current.outputTurn === null)
+                  (event.state !== 'ready' ||
+                    (current.outputTurn === null && !current.previewPlayback))
                 ) {
                   if (event.state === 'ready') {
                     clearTimer();
@@ -740,6 +819,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
       locale,
       mode,
       playReply,
+      playPreview,
       requestTextTurn,
       send,
       stopCapture,
@@ -750,6 +830,35 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
 
   const connectPreview = useCallback(() => connect('preview'), [connect]);
   const startLive = useCallback(() => connect('live'), [connect]);
+
+  // Capability checks never connect a session, request microphone access, or start recording.
+  const checkLiveAvailability = useCallback(async () => {
+    close();
+    const current = runtime.current;
+    const generation = current.generation;
+    update({ ...clearedContent, status: 'connecting', error: null });
+    const request = new AbortController();
+    current.request = request;
+    current.timer = setTimeout(() => {
+      request.abort();
+    }, 8000);
+    try {
+      const endpoints = voiceEndpoints(process.env.EXPO_PUBLIC_VOICE_API_URL, Platform.OS, 2);
+      const response = await fetch(endpoints.config, { signal: request.signal });
+      const input: unknown = await response.json();
+      if (generation !== current.generation || !current.mounted) return null;
+      const config = parseHarnessConfig(input);
+      if (!response.ok || config === null) throw new Error('Invalid voice configuration.');
+      clearTimer();
+      current.request = null;
+      update({ status: 'idle' });
+      return Platform.OS === 'web' ? 'unsupported' : config.liveEnabled ? 'available' : 'disabled';
+    } catch {
+      if (generation !== current.generation || !current.mounted) return null;
+      fail('connection');
+      return 'unreachable';
+    }
+  }, [clearTimer, close, fail, update]);
 
   const commitTurn = useCallback(async () => {
     const current = runtime.current;
@@ -939,6 +1048,7 @@ export function useVoiceSession({ locale, mode, topic }: Options) {
   return {
     ...state,
     connectPreview,
+    checkLiveAvailability,
     submitText,
     act,
     dismissPanel,

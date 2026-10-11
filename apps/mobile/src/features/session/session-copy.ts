@@ -1,12 +1,33 @@
 // Localized copy distinguishes scripted examples from the adult cloud voice lab.
 export const sessionCopy = {
   id: {
-    title: 'Yuk, bercerita.',
+    title: 'Yuk, latihan berbicara.',
+    talk: {
+      title: 'Berbicara dengan Morii',
+      about:
+        'Morii menemani latihan berbicara dan presentasi. Uji AI langsung masih untuk penguji dewasa. Contoh tertulis tersedia tanpa mikrofon.',
+      start: 'Ketuk Morii untuk menyapa',
+      checkVoice: 'Periksa uji suara',
+      typedExample: 'Coba contoh tertulis',
+      showConversation: 'Lihat percakapan',
+      mute: 'Matikan mikrofon atau suara Morii',
+      typeMessage: 'Ketik pesan',
+      greeting: 'Menyapa Morii',
+      unsupported:
+        'Uji mikrofon tersedia di aplikasi Android atau iOS. Di browser, coba jawaban contoh melalui teks.',
+      unreachable: 'Server belum terhubung. Contoh tertulis juga memerlukan sambungan ke server.',
+      disabled:
+        'Uji suara belum diaktifkan di server. Kamu bisa mencoba jawaban contoh melalui teks, tanpa mikrofon.',
+      adultOnly:
+        'Gunakan suara sendiri sebagai penguji dewasa atau materi sintetis. Mikrofon tetap mati sampai kamu menekan Mulai bicara.',
+      conversation: 'Percakapan',
+      ready: 'Mulai bicara saat siap.',
+    },
     topics: { hobby: 'Hobiku', day: 'Hariku' },
-    modes: { practice: 'Latihan satu alasan', talk: 'Obrolan satu topik' },
+    modes: { practice: 'Latihan satu alasan', talk: 'Berbicara dengan Morii' },
     prompts: {
-      hobby: 'Ceritakan hobimu dan satu alasan kamu menyukainya.',
-      day: 'Ceritakan satu hal menarik hari ini.',
+      hobby: 'Jelaskan hobimu dan satu alasan kamu menyukainya.',
+      day: 'Jelaskan satu hal menarik hari ini.',
     },
     status: {
       idle: 'Mikrofon mati.',
@@ -20,13 +41,13 @@ export const sessionCopy = {
       ended: 'Selesai · mikrofon mati.',
     },
     preview: 'Demo · mikrofon mati',
-    sample: 'CONTOH CERITA',
+    sample: 'CONTOH PENJELASAN',
     showExample: 'Lihat contoh',
     hideExample: 'Tutup contoh',
     showFeedback: 'Lihat saran Morii',
     nextExample: 'Coba contoh lain',
-    showTranscript: 'Lihat transkrip',
-    hideTranscript: 'Tutup transkrip',
+    showTranscript: 'Tampilkan teks Morii',
+    hideTranscript: 'Sembunyikan teks Morii',
     heard: 'YANG TERDENGAR',
     response: 'MORII',
     record: 'Mulai bicara',
@@ -46,12 +67,33 @@ export const sessionCopy = {
     characters: 'Karakter TTS',
   },
   en: {
-    title: 'Tell a little story.',
+    title: 'Let’s practice speaking.',
+    talk: {
+      title: 'Talking with Morii',
+      about:
+        'Morii helps with speaking and presentation practice. Live AI testing is still for adult testers. Typed examples are available without a microphone.',
+      start: 'Tap Morii to say hello',
+      checkVoice: 'Check voice test',
+      typedExample: 'Try a typed example',
+      showConversation: 'View conversation',
+      mute: 'Stop microphone or Morii’s voice',
+      typeMessage: 'Type a message',
+      greeting: 'Say hello to Morii',
+      unsupported:
+        'Microphone testing is available in the Android or iOS app. Try sample replies through text in the browser.',
+      unreachable: 'The server is unavailable. Typed examples also need a server connection.',
+      disabled:
+        'Voice testing is not enabled on the server. Try sample replies through text, without a microphone.',
+      adultOnly:
+        'Use your own voice as an adult tester or synthetic material. The microphone stays off until you press Start speaking.',
+      conversation: 'Conversation',
+      ready: 'Start speaking when ready.',
+    },
     topics: { hobby: 'My hobby', day: 'My day' },
-    modes: { practice: 'Practice one reason', talk: 'Talk about one topic' },
+    modes: { practice: 'Practice one reason', talk: 'Talk with Morii' },
     prompts: {
-      hobby: 'Tell me your hobby and one reason you enjoy it.',
-      day: 'Tell me one interesting thing about today.',
+      hobby: 'Explain your hobby and one reason you enjoy it.',
+      day: 'Explain one interesting thing about today.',
     },
     status: {
       idle: 'Microphone off.',
@@ -65,13 +107,13 @@ export const sessionCopy = {
       ended: 'Ended · microphone off.',
     },
     preview: 'Demo · microphone off',
-    sample: 'EXAMPLE STORY',
+    sample: 'EXAMPLE EXPLANATION',
     showExample: 'See an example',
     hideExample: 'Close example',
     showFeedback: 'See Morii’s suggestion',
     nextExample: 'Try another example',
-    showTranscript: 'Show transcript',
-    hideTranscript: 'Hide transcript',
+    showTranscript: 'Show Morii’s text',
+    hideTranscript: 'Hide Morii’s text',
     heard: 'WHAT WAS HEARD',
     response: 'MORII',
     record: 'Start speaking',

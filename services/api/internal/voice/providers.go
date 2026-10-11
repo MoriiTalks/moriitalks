@@ -224,7 +224,8 @@ func (p *cloudProviders) moderate(ctx context.Context, text string) error {
 const coachInstructions = `You are Morii, a friendly public speaking practice assistant in an adult-only engineering lab.
 Use the session language. Return at most two short sentences, at most 45 words and 400 characters.
 For practice, describe one observable detail supported by the words, then one specific improvement and an invitation to retry.
-For talk, acknowledge the idea briefly and ask one related question. Stay with everyday hobbies, the day, or ideas.
+For talk, follow the user's intent, help explain ideas or practice a presentation, and ask one brief clarification when needed.
+Do not default to choosing a story, invent a practice goal, or offer therapy. A greeting only needs a brief greeting.
 Never claim to assess confidence, anxiety, personality, age, fluency, pronunciation, or skill from a transcript.
 Do not invent praise, give scores, shame, diagnose, offer medical advice, or solicit personal details.
 Do not encourage secrets, dependence, romantic attachment, or claim to be a person.
@@ -248,64 +249,47 @@ func (p *cloudProviders) Respond(ctx context.Context, options sessionOptions, te
 	if err != nil {
 		return reply{}, errProvider
 	}
-	request, err := json.Marshal(newCoachRequest(string(input)))
-	if err != nil {
-		return reply{}, errProvider
-	}
-	data, err := p.postJSON(ctx, "/responses", request)
+	completion, err := p.completeCoach(ctx, newCoachRequest(string(input), p.config))
 	if err != nil {
 		return reply{}, err
 	}
-	var response coachResponse
-	if json.Unmarshal(data, &response) != nil || response.Status != "completed" || response.Usage == nil ||
-		response.Usage.InputTokens == nil || response.Usage.OutputTokens == nil {
+	var decoded coachReply
+	fields, err := uniqueFields([]byte(completion.Text))
+	if err != nil || len(fields) != 1 || fields["text"] == nil {
 		return reply{}, errProvider
 	}
-	inputTokens, outputTokens := *response.Usage.InputTokens, *response.Usage.OutputTokens
-	if inputTokens < 0 || outputTokens < 0 || inputTokens > 4096 || outputTokens > 600 {
+	decoder := json.NewDecoder(strings.NewReader(completion.Text))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&decoded) != nil || decoder.Decode(new(json.RawMessage)) != io.EOF {
 		return reply{}, errProvider
 	}
-	var result reply
-	for _, output := range response.Output {
-		if output.Type != "message" {
-			continue
-		}
-		for _, content := range output.Content {
-			if content.Type != "output_text" || result.Text != "" {
-				return reply{}, errProvider
-			}
-			var decoded coachReply
-			fields, err := uniqueFields([]byte(content.Text))
-			if err != nil || len(fields) != 1 || fields["text"] == nil {
-				return reply{}, errProvider
-			}
-			decoder := json.NewDecoder(strings.NewReader(content.Text))
-			decoder.DisallowUnknownFields()
-			if decoder.Decode(&decoded) != nil || decoder.Decode(new(json.RawMessage)) != io.EOF {
-				return reply{}, errProvider
-			}
-			result.Text = strings.TrimSpace(decoded.Text)
-		}
-	}
+	result := reply{Text: strings.TrimSpace(decoded.Text), InputTokens: completion.InputTokens, OutputTokens: completion.OutputTokens}
 	if !validReply(result.Text) {
 		return reply{}, errProvider
 	}
 	if err := p.moderate(ctx, result.Text); err != nil {
 		return reply{}, err
 	}
-	result.InputTokens, result.OutputTokens = inputTokens, outputTokens
 	return result, nil
 }
 
 func (p *cloudProviders) postJSON(ctx context.Context, path string, data []byte) ([]byte, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.openAIURL+path, bytes.NewReader(data))
+	return p.postProviderJSON(ctx, p.openAIURL+path, p.config.OpenAIKey, data)
+}
+
+// Coach routing never changes the moderation endpoint or its credential.
+func (p *cloudProviders) postProviderJSON(ctx context.Context, endpoint, key string, data []byte) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return nil, errProvider
 	}
-	request.Header.Set("Authorization", "Bearer "+p.config.OpenAIKey)
+	request.Header.Set("Authorization", "Bearer "+key)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := p.client.Do(request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, errProvider
 	}
 	defer response.Body.Close()
@@ -313,6 +297,9 @@ func (p *cloudProviders) postJSON(ctx context.Context, path string, data []byte)
 		return nil, errProvider
 	}
 	data, err = io.ReadAll(io.LimitReader(response.Body, 128*1024+1))
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil || len(data) > 128*1024 || validateProviderJSON(data, 0) != nil {
 		return nil, errProvider
 	}

@@ -120,11 +120,6 @@ func (s *session) handleHarness(data []byte) bool {
 		s.mu.Unlock()
 		return true
 	}
-	if command.Type == "turn.text" && s.kind != "preview" {
-		s.failureHarnessCommandLocked(command, "invalid_message", true)
-		s.mu.Unlock()
-		return true
-	}
 	if command.Type == "turn.action" {
 		pending := s.harness.pending
 		if pending == nil || pending.id != command.ResponseID || !allowedHarnessAction(pending.reply.Panel, command.ActionID) {
@@ -229,7 +224,7 @@ func actionSpeech(action, locale string) string {
 		case "hobby":
 			return "Aku memilih topik hobi."
 		case "day":
-			return "Aku memilih cerita hari ini."
+			return "Aku memilih membahas hari ini."
 		case "ideas":
 			return "Aku memilih berbagi ide."
 		case "hint":
@@ -250,7 +245,7 @@ func actionSpeech(action, locale string) string {
 	case "hobby":
 		return "I choose hobbies."
 	case "day":
-		return "I choose a story about today."
+		return "I choose to discuss today."
 	case "ideas":
 		return "I choose sharing an idea."
 	case "hint":

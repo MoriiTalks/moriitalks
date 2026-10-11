@@ -17,6 +17,9 @@ func scriptedHarnessReply(input harnessInput) harnessReply {
 	reply := harnessReply{Animation: "neutral"}
 	lower := strings.ToLower(input.Speech)
 	switch {
+	case input.Mode == "talk" && input.Action == "" && previewGreeting(lower):
+		reply.Text = choose("Halo! Aku Morii. Apa yang ingin kamu bahas?", "Hi! I'm Morii. What would you like to talk about?")
+		reply.Animation = "wave"
 	case input.Action == "end_session" || previewEndRequest(lower):
 		reply.Text = choose("Kita boleh berhenti di sini. Kamu bisa kembali saat ingin berlatih lagi.", "We can stop here. You can return whenever you want to practice.")
 		reply.Panel = &harnessPanel{Type: "request_end_session", Text: choose("Selesai untuk sekarang?", "Finish for now?")}
@@ -31,22 +34,42 @@ func scriptedHarnessReply(input harnessInput) harnessReply {
 	case input.Action == "hint" || strings.Contains(lower, "hint") || strings.Contains(lower, "petunjuk"):
 		reply.Text = choose("Pilih satu hal yang kamu suka, lalu tambahkan alasanmu sendiri.", "Choose one thing you enjoy, then add your own reason.")
 		reply.Panel = &harnessPanel{Type: "show_hint", Title: choose("Satu petunjuk", "One hint"), Text: choose("Mulai dengan: Aku suka … karena …", "Start with: I enjoy … because …")}
-	case input.Action == "outline" || input.Action == "retry" || input.Action == "start_mission" || strings.Contains(lower, "outline") || strings.Contains(lower, "kerangka") || strings.Contains(lower, "start a practice") || strings.Contains(lower, "memulai latihan"):
-		reply.Text = choose("Ceritakan satu hal yang kamu suka. Kita mulai dengan idemu dan satu alasan.", "Tell me one thing you enjoy. Start with your idea and one reason.")
-		reply.Panel = &harnessPanel{Type: "show_outline", Title: choose("Giliranmu bercerita", "Your turn to tell a story"), Parts: []string{choose("Ide: apa yang kamu suka?", "Idea: what do you enjoy?"), choose("Alasan: mengapa kamu menyukainya?", "Reason: why do you enjoy it?"), choose("Contoh kecil, jika kamu ingin", "A small example, if you want")}}
+		if input.Mode == "talk" {
+			reply.Text = choose("Mulai dengan satu pesan utama. Tambahkan alasan dan contoh yang membantu pendengar.", "Start with one main message. Add a reason and an example that help your listener.")
+			reply.Panel.Text = choose("Pesan utamaku adalah … Alasannya … Contohnya …", "My main message is … The reason is … An example is …")
+		}
+	case input.Action == "outline" || input.Action == "retry" || input.Action == "start_mission" || strings.Contains(lower, "outline") || strings.Contains(lower, "kerangka") || strings.Contains(lower, "start a practice") || strings.Contains(lower, "memulai latihan") || strings.Contains(lower, "latihan presentasi") || strings.Contains(lower, "practice a presentation"):
+		reply.Text = choose("Jelaskan satu hal yang kamu suka. Kita mulai dengan idemu dan satu alasan.", "Explain one thing you enjoy. Start with your idea and one reason.")
+		reply.Panel = &harnessPanel{Type: "show_outline", Title: choose("Kerangka singkat", "A short outline"), Parts: []string{choose("Ide: apa yang kamu suka?", "Idea: what do you enjoy?"), choose("Alasan: mengapa kamu menyukainya?", "Reason: why do you enjoy it?"), choose("Contoh kecil, jika kamu ingin", "A small example, if you want")}}
+		if input.Mode == "talk" {
+			reply.Text = choose("Jelaskan pesan utamamu, lalu satu alasan dan contoh yang mendukungnya.", "Explain your main message, then one reason and a concrete example that support it.")
+			reply.Panel.Parts = []string{
+				choose("Pesan utama: apa yang ingin dipahami pendengar?", "Main message: what should your listener understand?"),
+				choose("Alasan: mengapa hal itu penting?", "Reason: why does it matter?"),
+				choose("Contoh: satu kejadian atau fakta yang jelas.", "Example: one concrete event or fact."),
+			}
+		}
 	case knownTopic(input.Action):
-		reply.Text = choose("Topikmu sudah dipilih. Ceritakan satu hal tentang topik itu.", "Your topic is chosen. Tell me one thing about it.")
+		reply.Text = choose("Topikmu sudah dipilih. Jelaskan satu hal tentang topik itu.", "Your topic is chosen. Explain one thing about it.")
 		reply.Animation = "wave"
-	case strings.Contains(lower, "choose a topic") || strings.Contains(lower, "memilih topik") || strings.Contains(lower, "bingung"):
-		reply.Text = choose("Kamu mau bercerita tentang apa? Pilih satu topik yang kamu sukai.", "What would you like to talk about? Choose a topic you enjoy.")
+	case strings.Contains(lower, "choose a topic") || strings.Contains(lower, "memilih topik"):
+		reply.Text = choose("Kamu mau membahas apa? Pilih satu topik yang kamu sukai.", "What would you like to talk about? Choose a topic you enjoy.")
 		reply.Animation = "wave"
-		reply.Panel = &harnessPanel{Type: "show_choices", Title: choose("Pilih ceritamu", "Choose your story"), Choices: []harnessChoice{{"hobby", choose("Hobiku", "My hobbies")}, {"day", choose("Hari ini", "Today")}, {"ideas", choose("Ideku", "My idea")}}}
+		reply.Panel = &harnessPanel{Type: "show_choices", Title: choose("Pilihan topik", "Topic ideas"), Choices: []harnessChoice{{"hobby", choose("Hobiku", "My hobbies")}, {"day", choose("Hari ini", "Today")}, {"ideas", choose("Ideku", "My idea")}}}
 	case input.Mode == "practice":
 		reply = scriptedFeedback(input, choose)
 	default:
-		reply.Text = choose("Apa satu hal yang paling ingin kamu ceritakan tentang topik itu?", "What is one thing you would most like to share about that topic?")
+		reply.Text = choose("Apa yang ingin kamu jelaskan? Aku bisa membantu latihan presentasimu.", "What would you like to explain? I can help you practice your presentation.")
 	}
 	return reply
+}
+
+func previewGreeting(text string) bool {
+	switch strings.Trim(strings.TrimSpace(text), ".!?") {
+	case "halo", "halo, morii", "hai", "hai, morii", "hi", "hi, morii", "hello", "hello, morii":
+		return true
+	}
+	return false
 }
 
 // Explicit requests keep hobby stories such as stop motion from ending the preview.

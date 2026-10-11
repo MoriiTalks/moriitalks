@@ -23,22 +23,13 @@ type coachInput struct {
 	Speech   string `json:"speech"`
 }
 
-type coachSchema struct {
-	Type                 string   `json:"type"`
-	AdditionalProperties bool     `json:"additionalProperties"`
-	Required             []string `json:"required"`
-	Properties           struct {
-		Text struct {
-			Type string `json:"type"`
-		} `json:"text"`
-	} `json:"properties"`
-}
+var textReplySchema = json.RawMessage(`{"type":"object","additionalProperties":false,"required":["text"],"properties":{"text":{"type":"string"}}}`)
 
 type coachFormat struct {
-	Type   string      `json:"type"`
-	Name   string      `json:"name"`
-	Strict bool        `json:"strict"`
-	Schema coachSchema `json:"schema"`
+	Type   string          `json:"type"`
+	Name   string          `json:"name"`
+	Strict bool            `json:"strict"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 type coachRequest struct {
@@ -61,8 +52,11 @@ type coachContent struct {
 }
 
 type coachOutput struct {
-	Type    string         `json:"type"`
-	Content []coachContent `json:"content"`
+	Type         string          `json:"type"`
+	Status       string          `json:"status"`
+	Content      []coachContent  `json:"content"`
+	ToolCalls    json.RawMessage `json:"tool_calls"`
+	FunctionCall json.RawMessage `json:"function_call"`
 }
 
 type coachUsage struct {
@@ -71,9 +65,10 @@ type coachUsage struct {
 }
 
 type coachResponse struct {
-	Status string        `json:"status"`
-	Output []coachOutput `json:"output"`
-	Usage  *coachUsage   `json:"usage"`
+	Status string          `json:"status"`
+	Output []coachOutput   `json:"output"`
+	Usage  *coachUsage     `json:"usage"`
+	Error  json.RawMessage `json:"error"`
 }
 
 type coachReply struct {
@@ -81,17 +76,16 @@ type coachReply struct {
 }
 
 // newCoachRequest keeps session input separate from instructions and requests one text field.
-func newCoachRequest(input string) coachRequest {
+func newCoachRequest(input string, config Config) coachRequest {
 	request := coachRequest{
-		Model: "gpt-6.1-sol", Store: false, Instructions: coachInstructions,
+		Model: config.coachModel(), Store: false, Instructions: coachInstructions,
 		Input: input, MaxOutputTokens: 600,
 	}
-	request.Reasoning.Effort = "low"
+	request.Reasoning.Effort = config.coachReasoning()
 	request.Text.Format = coachFormat{
 		Type: "json_schema", Name: "morii_reply", Strict: true,
-		Schema: coachSchema{Type: "object", AdditionalProperties: false, Required: []string{"text"}},
+		Schema: textReplySchema,
 	}
-	request.Text.Format.Schema.Properties.Text.Type = "string"
 	return request
 }
 

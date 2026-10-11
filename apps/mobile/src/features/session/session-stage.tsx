@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
 
+import { Button } from '@/components/button';
 import { IconButton } from '@/components/icon-button';
 import { Morii } from '@/components/morii';
 import type { MoriiAnimation, MoriiState } from '@/components/morii';
@@ -38,7 +39,11 @@ export function SessionStage({
   state: MoriiState;
   animation: MoriiAnimation;
   footer: ReactNode;
-  info: { title: string; body: string };
+  info: {
+    title: string;
+    body: string;
+    actions?: { label: string; onPress: () => void }[];
+  };
   onMoriiPress?: () => void;
   moriiLabel?: string;
   onEnd?: () => void;
@@ -114,7 +119,9 @@ export function SessionStage({
               }}
             />
           </View>
-          <Text className="text-lg font-semibold tracking-[-0.5px] text-teal">morii</Text>
+          <Text className="min-w-0 flex-1 text-center text-lg font-semibold tracking-[-0.5px] text-teal">
+            morii
+          </Text>
           <View className="w-26 flex-row justify-end gap-1">
             {onEnd !== undefined && (
               <IconButton icon="close" label={id ? 'Akhiri sesi' : 'End session'} onPress={onEnd} />
@@ -156,9 +163,14 @@ export function SessionStage({
             )}
           </>
         )}
-        <View className="px-5 pt-2 pb-5">
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={{ maxHeight: height * 0.45, flexGrow: 0 }}
+          contentContainerClassName="px-5 pt-2 pb-5"
+        >
           <View className="mx-auto w-full max-w-140 gap-2">{footer}</View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
       <Sheet
         visible={showInfo}
@@ -169,6 +181,18 @@ export function SessionStage({
         }}
       >
         <Text className="text-base leading-7 text-muted">{info.body}</Text>
+        {info.actions?.map((action) => (
+          <Button
+            key={action.label}
+            variant="secondary"
+            onPress={() => {
+              setShowInfo(false);
+              action.onPress();
+            }}
+          >
+            {action.label}
+          </Button>
+        ))}
       </Sheet>
     </StyledSafeAreaView>
   );

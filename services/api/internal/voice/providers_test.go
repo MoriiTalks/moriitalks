@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,12 +90,9 @@ func TestCoachUsesBoundedStructuredResponseAndScreensBothSides(t *testing.T) {
 				http.Error(w, "invalid", http.StatusBadRequest)
 				return
 			}
-			safeRequest.Store(request.Model == "gpt-6.1-sol" && !request.Store && request.MaxOutputTokens == 600 && request.Reasoning.Effort == "low" &&
+			safeRequest.Store(request.Model == "gpt-6-luna" && !request.Store && request.MaxOutputTokens == 600 && request.Reasoning.Effort == "none" &&
 				request.Text.Format.Type == "json_schema" && request.Text.Format.Strict &&
-				request.Text.Format.Name == "morii_reply" && request.Text.Format.Schema.Type == "object" &&
-				!request.Text.Format.Schema.AdditionalProperties &&
-				len(request.Text.Format.Schema.Required) == 1 && request.Text.Format.Schema.Required[0] == "text" &&
-				request.Text.Format.Schema.Properties.Text.Type == "string" &&
+				request.Text.Format.Name == "morii_reply" && bytes.Equal(request.Text.Format.Schema, textReplySchema) &&
 				!strings.Contains(request.Instructions, "ignore all rules") && strings.Contains(request.Input, "ignore all rules"))
 			_, _ = io.WriteString(w, `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"text\":\"Add one example, then try again.\"}"}]}],"usage":{"input_tokens":120,"output_tokens":20}}`)
 		default:
@@ -231,6 +229,9 @@ func TestCoachRejectsMissingProviderFieldsAndAmbiguousReplies(t *testing.T) {
 		{"conflicting token count", `{"status":"completed","output":` + content + `,"usage":{"input_tokens":5000,"input_tokens":10,"output_tokens":10}}`},
 		{"case alias token count", `{"status":"completed","output":` + content + `,"usage":{"input_tokens":5000,"Input_Tokens":10,"output_tokens":10}}`},
 		{"missing output", `{"status":"completed","usage":{"input_tokens":10,"output_tokens":10}}`},
+		{"provider error", `{"status":"completed","error":{"message":"failed"},"output":` + content + `,"usage":{"input_tokens":10,"output_tokens":10}}`},
+		{"unexpected function output", `{"status":"completed","output":[{"type":"function_call","name":"terminal"},{"type":"message","content":[{"type":"output_text","text":"{\"text\":\"First answer.\"}"}]}],"usage":{"input_tokens":10,"output_tokens":10}}`},
+		{"unexpected message tools", `{"status":"completed","output":[{"type":"message","tool_calls":[{"name":"terminal"}],"content":[{"type":"output_text","text":"{\"text\":\"First answer.\"}"}]}],"usage":{"input_tokens":10,"output_tokens":10}}`},
 		{"duplicate text", `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"text\":\"First answer.\",\"text\":\"Second answer.\"}"}]}],"usage":{"input_tokens":10,"output_tokens":10}}`},
 		{"null text", `{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"text\":null}"}]}],"usage":{"input_tokens":10,"output_tokens":10}}`},
 	} {

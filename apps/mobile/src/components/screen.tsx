@@ -1,4 +1,4 @@
-import type { PropsWithChildren, ReactNode } from 'react';
+import type { PropsWithChildren, ReactNode, Ref } from 'react';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
@@ -13,11 +13,13 @@ export function Screen({
   children,
   navigation = false,
   footer,
-}: PropsWithChildren<{ navigation?: boolean; footer?: ReactNode }>) {
+  scrollRef,
+}: PropsWithChildren<{ navigation?: boolean; footer?: ReactNode; scrollRef?: Ref<ScrollView> }>) {
   return (
     <StyledSafeAreaView className="flex-1 bg-cream">
       <SceneBackground />
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerClassName="grow px-6 pt-5 pb-3"
       >

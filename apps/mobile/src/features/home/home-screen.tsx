@@ -4,34 +4,34 @@ import { Text, View } from 'react-native';
 
 import { Morii } from '@/components/morii';
 import { Button } from '@/components/button';
+import { IconButton } from '@/components/icon-button';
 import { Screen } from '@/components/screen';
 import { Heading, Paragraph } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
-// Keeps Morii and one invitation central, the preview details remain available in settings.
+// Gives practice and conversation one clear entry each, preferences stay in the header.
 export function HomeScreen() {
   const { locale } = useApp();
   const [moriiSize, setMoriiSize] = useState(300);
   const id = locale === 'id';
   return (
     <Screen
-      navigation
       footer={
         <View className="gap-2">
           <Button
             onPress={() => {
-              router.push('/talk');
+              router.push('/practice');
             }}
           >
-            {id ? 'Cerita dengan Morii' : 'Talk with Morii'}
+            {id ? 'Mulai latihan' : 'Start practice'}
           </Button>
           <Button
             variant="secondary"
             onPress={() => {
-              router.push('/practice');
+              router.push('/talk');
             }}
           >
-            {id ? 'Latihan singkat' : 'A little practice'}
+            {id ? 'Bicara dengan Morii' : 'Talk with Morii'}
           </Button>
         </View>
       }
@@ -41,7 +41,13 @@ export function HomeScreen() {
           <Text className="text-xl font-bold tracking-[-0.8px] text-ink">
             morii<Text className="text-teal">talks</Text>
           </Text>
-          <Text className="text-xs font-medium text-muted">{id ? 'Indonesia' : 'English'}</Text>
+          <IconButton
+            icon="settings"
+            label={id ? 'Pengaturan' : 'Settings'}
+            onPress={() => {
+              router.push('/settings');
+            }}
+          />
         </View>
         <View
           className="min-h-0 flex-1 items-center justify-center gap-3"
@@ -50,8 +56,10 @@ export function HomeScreen() {
             setMoriiSize(Math.max(160, Math.min(width - 12, height - 100, 360)));
           }}
         >
-          <Heading>{id ? 'Ada cerita apa?' : 'What’s your story?'}</Heading>
-          <Paragraph>{id ? 'Ada waktu untuk ceritamu.' : 'There’s room for your story.'}</Paragraph>
+          <Heading>{id ? 'Siap bicara?' : 'Ready to speak?'}</Heading>
+          <Paragraph>
+            {id ? 'Satu ide, selangkah lebih jelas.' : 'One idea, a little clearer.'}
+          </Paragraph>
           <Morii size={moriiSize} animation="wave" />
         </View>
       </View>

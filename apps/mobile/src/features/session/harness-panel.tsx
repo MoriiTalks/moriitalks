@@ -80,6 +80,7 @@ export function HarnessPanelView({
   disabled,
   canEnd = false,
   busy = false,
+  intro,
   onAction,
   onDismiss,
 }: {
@@ -88,6 +89,7 @@ export function HarnessPanelView({
   disabled: boolean;
   canEnd?: boolean;
   busy?: boolean;
+  intro?: string;
   onAction: (action: HarnessActionId) => void;
   onDismiss: () => void;
 }) {
@@ -166,6 +168,9 @@ export function HarnessPanelView({
           <Icon name="close" size={18} />
         </Pressable>
       </View>
+      {intro !== undefined && intro !== '' && (
+        <Text className="text-lg leading-7 text-ink">{intro}</Text>
+      )}
       {content()}
       {panel.type !== 'show_choices' && (
         <View className="flex-row flex-wrap gap-2">
