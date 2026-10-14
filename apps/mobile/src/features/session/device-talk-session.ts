@@ -24,7 +24,6 @@ export interface DeviceTalkState {
   status: DeviceTalkStatus;
   connected: boolean;
   voiceActive: boolean;
-  inputLevel: number | null;
   transcript: string;
   response: string;
   panel: HarnessPanel | null;
@@ -42,7 +41,6 @@ export interface RecognitionCallbacks {
   result: (text: string, final: boolean) => void;
   ended: () => void;
   failed: (reason: 'empty' | 'permission' | 'unavailable') => void;
-  level?: (level: number | null) => void;
 }
 
 export interface RecognitionCapture {
@@ -82,7 +80,6 @@ const initialState: DeviceTalkState = {
   status: 'idle',
   connected: false,
   voiceActive: false,
-  inputLevel: null,
   transcript: '',
   response: '',
   panel: null,
@@ -97,10 +94,10 @@ const initialState: DeviceTalkState = {
 
 const messages = {
   id: {
-    connection: 'Sambungan terputus. Percakapan masih terlihat. Sambungkan kembali saat siap.',
+    connection: 'Sambungan terputus. Mulai kembali saat siap.',
     permission: 'Mikrofon belum diizinkan. Kamu bisa mengetik pesan.',
     recognition: 'Ucapan belum bisa dikenali. Coba lagi atau ketik pesan.',
-    empty: 'Mikrofon dijeda karena belum ada ucapan. Lanjutkan saat siap.',
+    empty: 'Ucapan belum terdengar jelas. Tekan mikrofon untuk mencoba lagi.',
     playback: 'Suara Morii belum bisa diputar. Baca jawabannya, lalu lanjutkan.',
     provider: 'Morii belum bisa menjawab. Coba bicara atau ketik lagi.',
     unsafe: 'Pesan ini belum bisa ditanggapi. Coba sampaikan maksudmu dengan cara lain.',
@@ -109,10 +106,10 @@ const messages = {
     protocol: 'Sesi belum bisa dilanjutkan. Mulai kembali saat siap.',
   },
   en: {
-    connection: 'The connection stopped. Your conversation is still visible. Reconnect when ready.',
+    connection: 'The connection stopped. Start again when ready.',
     permission: 'Microphone access is off. You can type a message.',
     recognition: 'Speech could not be recognized. Try again or type a message.',
-    empty: 'The microphone paused while waiting for speech. Continue when you are ready.',
+    empty: 'Speech was unclear. Press the microphone to try again.',
     playback: 'Morii’s voice could not play. Read the reply, then continue.',
     provider: 'Morii could not reply. Try speaking or typing again.',
     unsafe: 'This message could not be answered. Try explaining what you mean another way.',
@@ -138,7 +135,7 @@ export class DeviceTalkSession {
   private serverReady = false;
   private remotePending = false;
   private playbackAllowed = true;
-  private listenDeadline: number | null = null;
+  private emptyRetries = 0;
   private committedAt: number | null = null;
   private turnSeconds = 30;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -185,7 +182,6 @@ export class DeviceTalkSession {
     this.starting = false;
     const capture = this.capture;
     this.capture = null;
-    if (this.state.inputLevel !== null) this.update({ inputLevel: null });
     if (capture !== null) {
       this.captureDrain = Promise.all([
         this.captureDrain,
@@ -213,38 +209,12 @@ export class DeviceTalkSession {
     this.connection = null;
     this.serverReady = false;
     this.remotePending = false;
-    this.listenDeadline = null;
     this.cursor.cancel();
   }
 
   private fail(reason: 'connection' | 'protocol') {
     this.disconnect();
-    this.update({
-      status: 'error',
-      connected: false,
-      voiceActive: false,
-      inputLevel: null,
-      panel: null,
-      animation: 'neutral',
-      responseId: null,
-      responsePending: false,
-      error: messages[this.locale][reason],
-    });
-  }
-
-  private finishSession() {
-    this.disconnect();
-    this.update({
-      status: 'ended',
-      connected: false,
-      voiceActive: false,
-      inputLevel: null,
-      panel: null,
-      animation: 'neutral',
-      responseId: null,
-      responsePending: false,
-      error: messages[this.locale].limit,
-    });
+    this.update({ ...initialState, status: 'error', error: messages[this.locale][reason] });
   }
 
   // A failed accepted turn keeps its admission count, retry requires a new explicit turn.
@@ -257,7 +227,7 @@ export class DeviceTalkSession {
     this.serverReady = true;
     this.playbackAllowed = false;
     this.update({
-      status: this.state.status === 'paused' ? 'paused' : 'ready',
+      status: 'ready',
       voiceActive: false,
       response: '',
       panel: null,
@@ -270,15 +240,13 @@ export class DeviceTalkSession {
     });
   }
 
-  async connect(voice: boolean, preserveConversation = false) {
-    const conversation = preserveConversation
-      ? { transcript: this.state.transcript, response: this.state.response }
-      : {};
+  async connect(voice: boolean) {
     this.disconnect();
     this.cursor = new HarnessCursor();
+    this.emptyRetries = 0;
     this.playbackAllowed = true;
     const epoch = this.epoch;
-    this.update({ ...initialState, ...conversation, status: 'connecting', voiceActive: voice });
+    this.update({ ...initialState, status: 'connecting', voiceActive: voice });
     const request = new AbortController();
     this.request = request;
     this.after(8000, () => {
@@ -305,11 +273,6 @@ export class DeviceTalkSession {
     }
   }
 
-  async reconnect(voice: boolean) {
-    if (this.state.connected || this.state.status === 'connecting') return;
-    await this.connect(voice, true);
-  }
-
   private accept(event: HarnessEvent) {
     if (!this.cursor.accept(event)) return;
     switch (event.type) {
@@ -322,13 +285,9 @@ export class DeviceTalkSession {
         this.serverReady = true;
         this.turnSeconds = event.limits.maxTurnSeconds;
         this.sessionTimer = setTimeout(() => {
-          this.finishSession();
+          this.end();
         }, event.limits.maxSessionSeconds * 1000);
-        this.update({
-          status: this.state.status === 'paused' ? 'paused' : 'ready',
-          connected: true,
-          remainingTurns: event.limits.maxTurns,
-        });
+        this.update({ status: 'ready', connected: true, remainingTurns: event.limits.maxTurns });
         void this.listen();
         break;
       case 'transcript':
@@ -350,7 +309,7 @@ export class DeviceTalkSession {
         if (event.state === 'ready') {
           this.serverReady = true;
           this.remotePending = false;
-          if (!this.speaking && this.state.status !== 'paused') this.update({ status: 'ready' });
+          if (!this.speaking) this.update({ status: 'ready' });
           void this.listen();
         }
         break;
@@ -360,10 +319,10 @@ export class DeviceTalkSession {
       case 'turn.cancelled':
         this.serverReady = true;
         this.remotePending = false;
-        if (this.state.status !== 'paused') this.update({ status: 'ready' });
+        this.update({ status: 'ready' });
         break;
       case 'session.closed':
-        this.finishSession();
+        this.end();
         break;
       case 'error':
         if (
@@ -396,11 +355,6 @@ export class DeviceTalkSession {
       this.speaking
     )
       return;
-    if (this.listenDeadline !== null && Date.now() >= this.listenDeadline) {
-      this.pause();
-      this.update({ error: messages[this.locale].empty });
-      return;
-    }
     if (this.state.remainingTurns === 0) {
       this.update({ voiceActive: false, error: messages[this.locale].limit });
       return;
@@ -409,12 +363,7 @@ export class DeviceTalkSession {
     const captureEpoch = ++this.captureEpoch;
     const current = () => epoch === this.epoch && captureEpoch === this.captureEpoch;
     this.starting = true;
-    this.update({
-      status: 'connecting',
-      inputLevel: null,
-      ...(this.listenDeadline === null ? { transcript: '' } : {}),
-      error: null,
-    });
+    this.update({ status: 'connecting', error: null });
     this.after(8000, () => {
       if (current()) this.recognitionFailed('unavailable');
     });
@@ -433,20 +382,10 @@ export class DeviceTalkSession {
         started: () => {
           if (!current()) return;
           this.starting = false;
-          this.listenDeadline ??= Date.now() + this.turnSeconds * 1000;
           this.update({ status: 'listening' });
-          this.after(Math.max(0, this.listenDeadline - Date.now()), () => {
-            if (!current()) return;
-            if (this.state.transcript === '') this.recognitionFailed('empty');
-            else this.finishVoice();
+          this.after(this.turnSeconds * 1000, () => {
+            if (current()) this.finishVoice();
           });
-        },
-        level: (level) => {
-          if (!current() || this.state.status !== 'listening') return;
-          if (level !== null && !Number.isFinite(level)) return;
-          const inputLevel =
-            level === null ? null : Math.round(Math.max(0, Math.min(1, level)) * 1000) / 1000;
-          if (inputLevel !== this.state.inputLevel) this.update({ inputLevel });
         },
         result: (text, final) => {
           if (!current() || stopping) return;
@@ -469,14 +408,13 @@ export class DeviceTalkSession {
           if (!current()) return;
           this.clearTimer();
           this.capture = null;
-          if (this.state.inputLevel !== null) this.update({ inputLevel: null });
           this.starting = false;
           this.captureEpoch += 1;
           if (finalText === '' || finalText.length > 1000) {
             this.recognitionFailed('empty');
             return;
           }
-          this.listenDeadline = null;
+          this.emptyRetries = 0;
           this.sendTurn({ type: 'text', text: finalText });
         },
         failed: (reason) => {
@@ -491,19 +429,14 @@ export class DeviceTalkSession {
   private recognitionFailed(reason: 'empty' | 'permission' | 'unavailable') {
     this.clearTimer();
     this.stopCapture();
-    if (reason === 'empty' && this.state.voiceActive) {
-      this.listenDeadline ??= Date.now() + this.turnSeconds * 1000;
-      const remaining = this.listenDeadline - Date.now();
-      if (remaining > 0) {
-        // OS recognizers may stop after a short silence, preserve the listening window without spinning.
-        this.update({ status: 'connecting', error: null });
-        this.after(Math.min(1000, remaining), () => void this.listen());
-        return;
-      }
+    if (reason === 'empty' && this.state.voiceActive && this.emptyRetries === 0) {
+      this.emptyRetries += 1;
+      this.update({ status: 'ready' });
+      void this.listen();
+      return;
     }
-    this.listenDeadline = null;
     this.update({
-      status: 'paused',
+      status: 'ready',
       voiceActive: false,
       error:
         messages[this.locale][
@@ -582,13 +515,7 @@ export class DeviceTalkSession {
         });
       }
       this.after(30000, () => {
-        const paused = this.state.status === 'paused';
-        this.interrupt();
-        if (this.state.connected)
-          this.update({
-            status: paused ? 'paused' : 'ready',
-            error: messages[this.locale].timeout,
-          });
+        this.fail('connection');
       });
     } catch {
       this.fail('connection');
@@ -700,29 +627,18 @@ export class DeviceTalkSession {
   }
 
   pause() {
-    if (!this.state.connected && this.state.status !== 'connecting') return;
-    if (!this.remotePending && this.serverReady) this.clearTimer();
+    if (!this.remotePending) this.clearTimer();
     this.stopCapture();
     this.stopPlayback();
     this.playbackAllowed = false;
-    this.listenDeadline = null;
-    this.update({ voiceActive: false, inputLevel: null, status: 'paused' });
+    this.update({ voiceActive: false, status: this.serverReady ? 'ready' : this.state.status });
   }
 
   resume() {
-    if (this.connection === null || this.speaking || (!this.serverReady && !this.remotePending))
-      return;
+    if (this.connection === null || !this.serverReady || this.state.responsePending) return;
     this.playbackAllowed = true;
-    this.listenDeadline = null;
-    this.update({
-      voiceActive: true,
-      status: this.remotePending ? 'thinking' : 'ready',
-      error: null,
-    });
-    if (this.state.responsePending && this.state.responseId !== null) {
-      this.play(this.state.response, this.state.responseId);
-      return;
-    }
+    this.emptyRetries = 0;
+    this.update({ voiceActive: true, error: null });
     void this.listen();
   }
 

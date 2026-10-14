@@ -1,7 +1,5 @@
 import type { RecognitionCallbacks, RecognitionDriver } from './device-talk-session';
 
-import { startBrowserInputMeter } from './browser-input-meter.ts';
-
 // Browser speech types are deliberately limited to the API surface owned by this adapter.
 export interface BrowserRecognition {
   lang: string;
@@ -21,7 +19,6 @@ export interface BrowserRecognition {
 export interface BrowserSpeechEnvironment {
   secureContext: boolean;
   create: () => BrowserRecognition;
-  startMeter?: (level: (value: number | null) => void) => () => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,7 +47,6 @@ export function browserSpeechEnvironment(scope: unknown): BrowserSpeechEnvironme
   if (typeof constructor !== 'function') return null;
   return {
     secureContext: scope['isSecureContext'] === true,
-    startMeter: startBrowserInputMeter,
     create: () => {
       const recognition: unknown = Reflect.construct(constructor, []);
       if (!isRecognition(recognition))
@@ -110,26 +106,11 @@ export function createBrowserSpeech(
       let started = false;
       let stopping = false;
       let drain: Promise<void> | null = null;
-      let metering = false;
-      let stopMeter: (() => void) | null = null;
       let complete: () => void = () => undefined;
       const completion = new Promise<void>((resolve) => {
         complete = resolve;
       });
       const current = () => active === recognition && !cancelled && !ended && !failed;
-      const meterCurrent = () => current() && metering;
-      const endMeter = () => {
-        if (!metering) return;
-        metering = false;
-        const stop = stopMeter;
-        stopMeter = null;
-        try {
-          stop?.();
-        } catch {
-          // An optional volume meter cannot fail the recognizer.
-        }
-        callbacks.level?.(null);
-      };
       const detachInput = () => {
         recognition.onstart = null;
         recognition.onresult = null;
@@ -139,7 +120,6 @@ export function createBrowserSpeech(
       const fail = (reason: Parameters<RecognitionCallbacks['failed']>[0]) => {
         if (!current()) return;
         failed = true;
-        endMeter();
         callbacks.failed(reason);
       };
       recognition.lang = locale === 'id' ? 'id-ID' : 'en-US';
@@ -150,18 +130,6 @@ export function createBrowserSpeech(
         if (!current() || started) return;
         started = true;
         callbacks.started();
-        if (current() && callbacks.level !== undefined && available.startMeter !== undefined) {
-          metering = true;
-          try {
-            const stop = available.startMeter((level) => {
-              if (meterCurrent()) callbacks.level?.(level);
-            });
-            if (meterCurrent()) stopMeter = stop;
-            else stop();
-          } catch {
-            endMeter();
-          }
-        }
       };
       recognition.onresult = (event) => {
         if (!current() || final) return;
@@ -182,7 +150,6 @@ export function createBrowserSpeech(
       recognition.onend = () => {
         if (ended) return;
         ended = true;
-        endMeter();
         if (active === recognition) active = null;
         detachInput();
         recognition.onend = null;
@@ -203,7 +170,6 @@ export function createBrowserSpeech(
         stop: () => {
           if (ended || cancelled || stopping) return;
           stopping = true;
-          endMeter();
           try {
             recognition.stop();
           } catch (error) {
@@ -215,7 +181,6 @@ export function createBrowserSpeech(
           if (ended) return Promise.resolve();
           if (drain !== null) return drain;
           cancelled = true;
-          endMeter();
           detachInput();
           drain = new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, 2000);

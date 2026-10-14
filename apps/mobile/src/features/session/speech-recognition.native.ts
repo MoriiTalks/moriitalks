@@ -37,9 +37,6 @@ export const speechRecognition: RecognitionDriver = {
         if (event.isFinal) ending = true;
         if (!cancelled) callbacks.result(event.results[0]?.transcript ?? '', event.isFinal);
       }),
-      recognition.addListener('volumechange', (event) => {
-        if (!cancelled && !ended) callbacks.level?.(Math.max(0, Math.min(1, event.value / 10)));
-      }),
       recognition.addListener('error', (event) => {
         ending = true;
         if (cancelled) return;
@@ -68,7 +65,6 @@ export const speechRecognition: RecognitionDriver = {
         interimResults: true,
         maxAlternatives: 1,
         continuous: false,
-        volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
         // The OS speech service may use its network, this PoC does not promise offline capture.
         requiresOnDeviceRecognition: false,
         recordingOptions: { persist: false },

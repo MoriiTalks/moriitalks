@@ -495,41 +495,28 @@ void test('capture cancellation drains before a resumed recognizer can own new c
   }
 });
 
-void test('silence leaves time to speak, then pauses the microphone without ending the call', async (context) => {
+void test('empty speech retries once, then pauses without a model request or a hot loop', async () => {
   const f = fixture();
-  context.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   try {
     await f.session.connect(true);
     f.ready();
     await tick();
-    f.captures[0]?.callbacks.started();
     f.captures[0]?.callbacks.failed('empty');
     await tick();
-    assert.equal(f.captures.length, 1);
-    context.mock.timers.tick(1000);
-    await tick();
     assert.equal(f.captures.length, 2);
-    f.captures[1]?.callbacks.started();
     f.captures[1]?.callbacks.failed('empty');
     await tick();
     assert.equal(f.captures.length, 2);
-    assert.equal(f.session.snapshot().voiceActive, true);
-    assert.equal(f.session.snapshot().connected, true);
-    context.mock.timers.tick(29000);
-    await tick();
     assert.equal(f.commands.length, 0);
     assert.equal(f.session.snapshot().remainingTurns, 8);
     assert.equal(f.session.snapshot().voiceActive, false);
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.equal(f.session.snapshot().connected, true);
-    assert.equal(f.closed(), 0);
+    assert.ok(f.session.snapshot().error?.includes('Tekan mikrofon'));
   } finally {
     f.session.end();
-    context.mock.timers.reset();
   }
 });
 
-void test('failed speech stays unread during a replay attempt and supports explicit text continuation', async () => {
+void test('failed or never-started speech stays unread until explicit text continuation', async () => {
   const f = fixture();
   try {
     await f.session.connect(false);
@@ -543,9 +530,6 @@ void test('failed speech stays unread during a replay attempt and supports expli
     f.session.resume();
     await tick();
     assert.equal(f.captures.length, 0);
-    assert.equal(f.playback.length, 2);
-    assert.equal(f.session.snapshot().responsePending, true);
-    f.playback[1]?.failed();
     f.session.continueText();
     assert.equal(f.session.snapshot().responsePending, false);
     assert.equal(f.commands[1]?.type, 'response.played');
@@ -596,183 +580,8 @@ void test('pause stops speech, stale completion cannot acknowledge it or restart
     assert.equal(f.session.snapshot().voiceActive, false);
     assert.equal(f.session.snapshot().responsePending, true);
     assert.equal(f.commands.filter((command) => command.type === 'response.played').length, 0);
-    assert.equal(f.session.snapshot().status, 'paused');
+    assert.equal(f.session.snapshot().status, 'ready');
   } finally {
     f.session.end();
-  }
-});
-
-void test('pausing and resuming a reply replays it without losing or acknowledging unread speech', async () => {
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.ready();
-    f.session.submitText('Bantu saya membuka presentasi.');
-    f.response();
-    f.turnReady();
-    f.playback[0]?.started();
-    f.session.pause();
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.notEqual(f.session.snapshot().response, '');
-    f.session.resume();
-    assert.equal(f.playback.length, 2);
-    assert.equal(f.session.snapshot().responsePending, true);
-    f.playback[0]?.finished();
-    assert.equal(f.commands.filter((command) => command.type === 'response.played').length, 0);
-    f.playback[1]?.started();
-    f.playback[1]?.finished();
-    await tick();
-    assert.equal(f.commands.filter((command) => command.type === 'response.played').length, 1);
-    assert.equal(f.captures.length, 1);
-  } finally {
-    f.session.end();
-  }
-});
-
-void test('a reply arriving during pause stays paused until explicitly resumed', async () => {
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.ready();
-    f.session.submitText('Beri satu contoh pembukaan.');
-    f.session.pause();
-    f.response();
-    f.turnReady();
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.equal(f.playback.length, 0);
-    f.session.resume();
-    assert.equal(f.playback.length, 1);
-  } finally {
-    f.session.end();
-  }
-});
-
-void test('a stalled reply cancels only its turn, including when the user has paused', async (context) => {
-  context.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.ready();
-    f.session.submitText('Bantu pembukaan presentasi.');
-    f.session.pause();
-    context.mock.timers.tick(30001);
-    assert.equal(f.commands[1]?.type, 'turn.cancel');
-    assert.equal(f.session.snapshot().connected, true);
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.equal(f.session.snapshot().transcript, 'Bantu pembukaan presentasi.');
-    f.response();
-    assert.equal(f.playback.length, 0);
-    f.session.submitText('Coba lagi.');
-    assert.equal(f.commands[2]?.type, 'turn.text');
-    assert.equal(f.closed(), 0);
-  } finally {
-    f.session.end();
-    context.mock.timers.reset();
-  }
-});
-
-void test('a disconnected call retains its conversation and reconnects only after an explicit action', async () => {
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.ready();
-    f.session.submitText('Bantu pembukaan presentasi.');
-    f.response();
-    f.turnReady();
-    const reply = f.session.snapshot().response;
-    f.disconnect();
-    assert.equal(f.session.snapshot().connected, false);
-    assert.equal(f.session.snapshot().transcript, 'Bantu pembukaan presentasi.');
-    assert.equal(f.session.snapshot().response, reply);
-    assert.equal(f.session.snapshot().voiceActive, false);
-    await f.session.reconnect(false);
-    f.ready();
-    assert.equal(f.session.snapshot().connected, true);
-    assert.equal(f.session.snapshot().response, reply);
-    assert.equal(f.session.snapshot().responsePending, false);
-    assert.equal(f.session.snapshot().responseId, null);
-    assert.equal(f.captures.length, 0);
-  } finally {
-    f.session.end();
-  }
-});
-
-void test('session expiry retains the final reply and explains that a new session is needed', async (context) => {
-  context.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.ready();
-    f.session.submitText('Bantu pembukaan presentasi.');
-    f.response();
-    f.turnReady();
-    f.playback[0]?.started();
-    f.playback[0]?.finished();
-    const reply = f.session.snapshot().response;
-    context.mock.timers.tick(300000);
-    assert.equal(f.session.snapshot().status, 'ended');
-    assert.equal(f.session.snapshot().connected, false);
-    assert.equal(f.session.snapshot().response, reply);
-    assert.ok(f.session.snapshot().error);
-  } finally {
-    f.session.end();
-    context.mock.timers.reset();
-  }
-});
-
-void test('input levels reflect only the current live capture and reset immediately on pause', async () => {
-  const f = fixture();
-  try {
-    await f.session.connect(true);
-    f.ready();
-    await tick();
-    const capture = f.captures[0];
-    assert.ok(capture);
-    capture.callbacks.started();
-    capture.callbacks.level?.(0.6);
-    assert.equal(f.session.snapshot().inputLevel, 0.6);
-    const published = f.notifications();
-    capture.callbacks.level?.(0.6);
-    capture.callbacks.level?.(Number.NaN);
-    assert.equal(f.notifications(), published);
-    f.session.pause();
-    capture.callbacks.level?.(0.9);
-    assert.equal(f.session.snapshot().inputLevel, null);
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.equal(f.session.snapshot().connected, true);
-  } finally {
-    f.session.end();
-  }
-});
-
-void test('a connection completing after pause cannot replace the paused state or start the microphone', async () => {
-  const f = fixture();
-  try {
-    await f.session.connect(true);
-    f.session.pause();
-    f.ready();
-    await tick();
-    assert.equal(f.session.snapshot().connected, true);
-    assert.equal(f.session.snapshot().status, 'paused');
-    assert.equal(f.session.snapshot().voiceActive, false);
-    assert.equal(f.captures.length, 0);
-  } finally {
-    f.session.end();
-  }
-});
-
-void test('pausing a stalled connection does not cancel its connection deadline', async (context) => {
-  context.mock.timers.enable({ apis: ['setTimeout'] });
-  const f = fixture();
-  try {
-    await f.session.connect(false);
-    f.session.pause();
-    context.mock.timers.tick(8001);
-    assert.equal(f.session.snapshot().status, 'error');
-    assert.equal(f.session.snapshot().connected, false);
-    assert.equal(f.closed(), 1);
-  } finally {
-    f.session.end();
-    context.mock.timers.reset();
   }
 });
