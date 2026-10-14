@@ -12,6 +12,8 @@ expo-env.d.ts
 bin/
 *.exe
 *.test
+__pycache__/
+*.pyc
 *.log
 .DS_Store
 Thumbs.db

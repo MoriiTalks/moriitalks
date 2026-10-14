@@ -1,11 +1,44 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { selectDeviceVoice } from './device-voice.ts';
+import { loadDeviceVoices, selectDeviceVoice } from './device-voice.ts';
 
 function voice(language: string, quality = 'Default') {
   return { identifier: language, language, quality };
 }
+
+void test('voice discovery waits for a delayed engine instead of treating loading as unavailable', async () => {
+  const engine = Promise.withResolvers<ReturnType<typeof voice>[]>();
+  let completed = false;
+  const inventory = loadDeviceVoices(() => engine.promise).then((voices) => {
+    completed = true;
+    return voices;
+  });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  const candidate = voice('id-ID');
+  engine.resolve([candidate]);
+  assert.deepEqual(await inventory, [candidate]);
+});
+
+void test('a stalled voice engine times out and cannot replace the next inventory', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const engine = Promise.withResolvers<ReturnType<typeof voice>[]>();
+  const inventory = loadDeviceVoices(() => engine.promise);
+  context.mock.timers.tick(4000);
+  assert.deepEqual(await inventory, []);
+  const candidate = voice('id-ID');
+  assert.deepEqual(await loadDeviceVoices(() => Promise.resolve([candidate])), [candidate]);
+  engine.resolve([voice('en-US')]);
+  assert.deepEqual(await inventory, []);
+});
+
+void test('voice discovery failure leaves a usable empty inventory', async () => {
+  assert.deepEqual(
+    await loadDeviceVoices(() => Promise.reject(new Error('Voice engine unavailable'))),
+    [],
+  );
+});
 
 void test('Indonesian voice selection accepts current and legacy Android language codes', () => {
   for (const language of ['id', 'id-ID', 'ID_id', 'in', 'in-ID', 'IN_id']) {

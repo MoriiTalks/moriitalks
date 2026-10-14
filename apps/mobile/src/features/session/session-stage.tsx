@@ -1,15 +1,16 @@
 import { router } from 'expo-router';
-import { Children, useState } from 'react';
+import { Children, useState, useSyncExternalStore } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
 import {
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
+import type { ScaledSize } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
 
@@ -23,21 +24,37 @@ import { useApp } from '@/state/app-context';
 
 const StyledSafeAreaView = withUniwind(SafeAreaView);
 
+const serverViewport: ScaledSize = { width: 0, height: 0, scale: 1, fontScale: 1 };
+const windowSnapshot = () => Dimensions.get('window');
+const serverWindowSnapshot = () => serverViewport;
+
+function subscribeWindow(changed: () => void) {
+  const listener = Dimensions.addEventListener('change', changed);
+  return () => {
+    listener.remove();
+  };
+}
+
 // Morii keeps the main stage, short screens scroll while the input remains reachable.
 export function SessionStage({
   children,
   status,
   state,
   animation,
+  prop = 'none',
+  quiet = false,
   footer,
   info,
   onMoriiPress,
   moriiLabel,
   onEnd,
+  onInfoOpen,
 }: PropsWithChildren<{
   status: string;
   state: MoriiState;
   animation: MoriiAnimation;
+  prop?: 'none' | 'idea-card';
+  quiet?: boolean;
   footer: ReactNode;
   info: {
     title: string;
@@ -47,9 +64,15 @@ export function SessionStage({
   onMoriiPress?: () => void;
   moriiLabel?: string;
   onEnd?: () => void;
+  onInfoOpen?: () => void;
 }>) {
   const { locale } = useApp();
-  const { fontScale, height, width } = useWindowDimensions();
+  // Static HTML and its first client render share one layout, actual dimensions follow hydration.
+  const { fontScale, height, width } = useSyncExternalStore(
+    subscribeWindow,
+    windowSnapshot,
+    serverWindowSnapshot,
+  );
   const [heroHeight, setHeroHeight] = useState<number | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const content = Children.toArray(children);
@@ -79,11 +102,25 @@ export function SessionStage({
           onPress={onMoriiPress}
           className="rounded-full active:opacity-90"
         >
-          <Morii pose="explain" size={size} state={state} animation={animation} />
+          <Morii
+            pose="explain"
+            size={size}
+            state={state}
+            animation={animation}
+            prop={prop}
+            quiet={quiet || showInfo}
+          />
         </Pressable>
       ) : (
         <View accessible accessibilityLabel="Morii">
-          <Morii pose="explain" size={size} state={state} animation={animation} />
+          <Morii
+            pose="explain"
+            size={size}
+            state={state}
+            animation={animation}
+            prop={prop}
+            quiet={quiet || showInfo}
+          />
         </View>
       )}
       <Text
@@ -131,6 +168,7 @@ export function SessionStage({
               label={id ? 'Tentang sesi ini' : 'About this session'}
               disabled={state === 'listening'}
               onPress={() => {
+                onInfoOpen?.();
                 setShowInfo(true);
               }}
             />

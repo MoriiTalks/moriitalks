@@ -83,6 +83,7 @@ export function HarnessPanelView({
   intro,
   onAction,
   onDismiss,
+  presentation = 'card',
 }: {
   panel: HarnessPanel;
   locale: VoiceLocale;
@@ -92,6 +93,7 @@ export function HarnessPanelView({
   intro?: string;
   onAction: (action: HarnessActionId) => void;
   onDismiss: () => void;
+  presentation?: 'card' | 'sheet';
 }) {
   const copy = harnessCopy[locale];
   const title =
@@ -149,25 +151,33 @@ export function HarnessPanelView({
     action === 'start_mission' ? copy.next : action === 'end_session' ? copy.end : copy.retry;
 
   return (
-    <View className="gap-3 rounded-3xl bg-surface p-4 shadow-sm shadow-ink/5">
-      <View className="flex-row items-center justify-between gap-2">
-        <Text
-          accessibilityRole="header"
-          className="flex-1 text-base leading-6 font-semibold text-ink"
-        >
-          {title}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={copy.close}
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
-          onPress={onDismiss}
-          className={`-my-2 -mr-2 min-h-12 min-w-12 items-center justify-center rounded-2xl ${busy ? 'opacity-50' : 'active:bg-mist'}`}
-        >
-          <Icon name="close" size={18} />
-        </Pressable>
-      </View>
+    <View
+      className={
+        presentation === 'sheet'
+          ? 'gap-3'
+          : 'gap-3 rounded-3xl bg-surface p-4 shadow-sm shadow-ink/5'
+      }
+    >
+      {presentation === 'card' && (
+        <View className="flex-row items-center justify-between gap-2">
+          <Text
+            accessibilityRole="header"
+            className="flex-1 text-base leading-6 font-semibold text-ink"
+          >
+            {title}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={copy.close}
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
+            onPress={onDismiss}
+            className={`-my-2 -mr-2 min-h-12 min-w-12 items-center justify-center rounded-2xl ${busy ? 'opacity-50' : 'active:bg-mist'}`}
+          >
+            <Icon name="close" size={18} />
+          </Pressable>
+        </View>
+      )}
       {intro !== undefined && intro !== '' && (
         <Text className="text-lg leading-7 text-ink">{intro}</Text>
       )}

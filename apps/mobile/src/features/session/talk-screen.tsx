@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
+import type { HarnessActionId } from '@contracts/harness';
 
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
@@ -8,13 +9,14 @@ import { Sheet } from '@/components/sheet';
 import { Note, Paragraph } from '@/components/typography';
 import { useApp } from '@/state/app-context';
 
+import { deviceTalkCopy } from './device-talk-copy';
 import { harnessCopy } from './harness-copy';
-import { HarnessPanelView, HarnessTools } from './harness-panel';
+import { HarnessPanelView } from './harness-panel';
 import { sessionCopy } from './session-copy';
 import { SessionStage } from './session-stage';
-import { useVoiceSession } from './use-voice-session';
+import { useDeviceTalk } from './use-device-talk';
 
-// Draft text exists only while the connected composer is mounted.
+// Draft text stays on this screen, submission is always an explicit action.
 function MessageComposer({
   busy,
   placeholder,
@@ -27,14 +29,12 @@ function MessageComposer({
   onSubmit: (text: string) => void;
 }) {
   const [text, setText] = useState('');
-
   function submit() {
     const message = text.trim();
     if (message === '' || busy) return;
     onSubmit(message);
     setText('');
   }
-
   return (
     <View className="min-w-0 flex-row items-center gap-2 rounded-3xl border border-line bg-surface p-1.5">
       <TextInput
@@ -60,239 +60,204 @@ function MessageComposer({
   );
 }
 
-type Availability = 'available' | 'disabled' | 'unsupported' | 'unreachable';
-
-// Morii stays central, live testing and scripted examples are explicit choices before connection.
+// The call owns speech turns, the harness controls one drawer and Morii's approved gestures.
 export function TalkScreen() {
   const { locale } = useApp();
-  const [showTools, setShowTools] = useState(false);
+  const session = useDeviceTalk({ locale, mode: 'talk', topic: 'ideas' });
+  const copy = deviceTalkCopy[locale];
+  const harness = harnessCopy[locale];
   const [showComposer, setShowComposer] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
   const [sheet, setSheet] = useState<'access' | 'details' | null>(null);
-  const [availability, setAvailability] = useState<Availability>('disabled');
-  const session = useVoiceSession({ locale, mode: 'talk', topic: 'ideas' });
-  const copy = sessionCopy[locale];
-  const harness = harnessCopy[locale];
-  const live = session.kind === 'live';
-  const canStart = ['idle', 'paused', 'ended', 'error'].includes(session.status);
-  const connected = ['ready', 'listening', 'thinking', 'speaking'].includes(session.status);
-  const busy = session.status === 'connecting' || session.status === 'thinking';
+  const [checking, setChecking] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const connected = session.connected;
+  const busy = checking || session.status === 'connecting' || session.status === 'thinking';
   const listening = session.status === 'listening';
   const speaking = session.status === 'speaking';
   const exhausted = connected && session.remainingTurns === 0 && session.status === 'ready';
-  const actionable = session.status === 'ready' && session.responseId !== null && !exhausted;
-  const primaryLabel = speaking ? copy.interrupt : listening ? copy.send : copy.record;
+  const canStart = !connected && session.status !== 'connecting' && !checking;
+  const unread = session.responsePending && session.status === 'ready';
+  const canInterrupt = speaking || session.status === 'thinking';
+  const microphoneDisabled = unread || (!session.recognitionSupported && !canInterrupt);
+  const actionable =
+    session.status === 'ready' &&
+    session.responseId !== null &&
+    !session.responsePending &&
+    !exhausted;
+  const primaryLabel =
+    speaking || session.status === 'thinking'
+      ? copy.interrupt
+      : listening
+        ? copy.finish
+        : copy.resume;
+  const panel = session.panel;
+  const panelTitle =
+    panel !== null && 'title' in panel
+      ? panel.title
+      : panel?.type === 'propose_feedback'
+        ? harness.feedback
+        : harness.end;
 
   async function begin() {
-    setShowTools(false);
-    setShowComposer(false);
-    const result = await session.checkLiveAvailability();
-    if (result === null) return;
-    setAvailability(result);
+    setChecking(true);
+    const enabled = await session.checkAvailability();
+    setAvailable(enabled === true);
+    setChecking(false);
     setSheet('access');
   }
-
+  function connect(voice: boolean) {
+    setSheet(null);
+    setShowComposer(!voice);
+    void session.connect(voice);
+  }
   function end() {
     setSheet(null);
-    setShowTools(false);
     setShowComposer(false);
     session.end();
   }
-
-  function startExample() {
-    setSheet(null);
-    setShowTools(false);
-    void session.connectPreview();
-  }
-
   function pressMicrophone() {
-    setShowTools(false);
-    if (speaking) session.interrupt();
-    else if (listening) void session.commitTurn();
-    else void session.startTurn();
+    setShowComposer(false);
+    if (listening) session.finishVoice();
+    else if (speaking || session.status === 'thinking') session.interrupt();
+    else session.resume();
   }
-
-  const actions = canStart
+  function act(action: HarnessActionId) {
+    if (action === 'end_session') end();
+    else session.act(action);
+  }
+  const actions = connected
     ? [
         {
-          label: copy.talk.checkVoice,
+          label: copy.details,
           onPress: () => {
-            void begin();
+            session.pause();
+            setSheet('details');
           },
         },
-        { label: copy.talk.typedExample, onPress: startExample },
-      ]
-    : connected
-      ? [
-          {
-            label: copy.talk.showConversation,
-            onPress: () => {
-              setSheet('details');
-            },
+        {
+          label: showCaptions ? copy.hideText : copy.showText,
+          onPress: () => {
+            setShowCaptions(!showCaptions);
           },
-          ...(live
-            ? [
-                {
-                  label: showCaptions ? copy.hideTranscript : copy.showTranscript,
-                  onPress: () => {
-                    setShowCaptions((shown) => !shown);
-                  },
-                },
-              ]
-            : []),
-        ]
-      : [];
+        },
+      ]
+    : [];
 
   return (
     <>
       <SessionStage
-        status={copy.status[session.status]}
+        status={checking ? sessionCopy[locale].wait : sessionCopy[locale].status[session.status]}
         state={session.status}
         animation={session.animation}
-        info={{
-          title: copy.talk.title,
-          body: connected ? (live ? copy.labNote : harness.previewNote) : copy.talk.about,
-          actions,
-        }}
-        {...(canStart ? { onMoriiPress: () => void begin(), moriiLabel: harness.start } : {})}
-        {...(!canStart ? { onEnd: end } : {})}
+        prop={panel?.type === 'show_hint' || panel?.type === 'show_outline' ? 'idea-card' : 'none'}
+        quiet={(panel !== null && !speaking) || sheet !== null || showComposer}
+        info={{ title: sessionCopy[locale].talk.title, body: copy.about, actions }}
+        onInfoOpen={session.pause}
+        {...(canStart ? { onMoriiPress: () => void begin(), moriiLabel: copy.start } : {})}
+        {...(connected || session.status === 'connecting' ? { onEnd: end } : {})}
         footer={
           !connected ? (
             <Text className="py-3 text-center text-lg leading-7 text-muted">
-              {busy ? copy.wait : copy.talk.start}
+              {busy ? sessionCopy[locale].wait : copy.start}
             </Text>
           ) : exhausted ? (
-            <Button onPress={end}>{harness.end}</Button>
+            <View className="gap-2">
+              <Note>{copy.limit}</Note>
+              <Button onPress={end}>{copy.end}</Button>
+            </View>
           ) : (
             <>
-              {actionable && session.panel === null && (
-                <HarnessTools
-                  locale={locale}
-                  expanded={showTools}
-                  onToggle={() => {
-                    setShowTools((shown) => !shown);
-                  }}
-                  onAction={(action) => {
-                    session.act(action);
-                    setShowTools(false);
+              <View className="flex-row items-center justify-center gap-6">
+                <IconButton
+                  icon="pause"
+                  label={copy.pause}
+                  disabled={!session.voiceActive && !listening && !speaking && !busy}
+                  onPress={session.pause}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={primaryLabel}
+                  accessibilityState={{ disabled: microphoneDisabled }}
+                  disabled={microphoneDisabled}
+                  onPress={pressMicrophone}
+                  className={`size-18 items-center justify-center rounded-full ${listening ? 'bg-peach' : 'bg-teal'} ${microphoneDisabled ? 'opacity-40' : 'active:opacity-75'}`}
+                >
+                  <Icon
+                    name={speaking || busy ? 'pause' : listening ? 'check' : 'mic'}
+                    size={28}
+                    color={listening ? '#183D37' : '#FFFFFF'}
+                  />
+                </Pressable>
+                <IconButton
+                  icon="chat"
+                  label={showComposer ? copy.keyboardClose : copy.type}
+                  expanded={showComposer}
+                  onPress={() => {
+                    session.pause();
+                    setShowComposer(!showComposer);
                   }}
                 />
-              )}
-              {live ? (
-                <>
-                  <View className="flex-row items-center justify-center gap-6">
-                    <IconButton
-                      icon="pause"
-                      label={copy.talk.mute}
-                      disabled={!listening && !speaking}
-                      onPress={session.interrupt}
-                    />
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={primaryLabel}
-                      accessibilityState={{ disabled: busy }}
-                      disabled={busy}
-                      onPress={pressMicrophone}
-                      className={`size-18 items-center justify-center rounded-full ${listening ? 'bg-peach' : 'bg-teal'} ${busy ? 'opacity-40' : 'active:opacity-75'}`}
-                    >
-                      <Icon
-                        name={speaking ? 'pause' : listening ? 'check' : 'mic'}
-                        size={28}
-                        color={listening ? '#183D37' : '#FFFFFF'}
-                      />
-                    </Pressable>
-                    <IconButton
-                      icon="chat"
-                      label={copy.talk.typeMessage}
-                      expanded={showComposer}
-                      disabled={busy || listening || speaking}
-                      onPress={() => {
-                        setShowComposer((shown) => !shown);
-                        setShowTools(false);
-                      }}
-                    />
-                  </View>
-                  <Text className="text-center text-base leading-6 text-muted">
-                    {busy ? copy.wait : primaryLabel}
-                  </Text>
-                </>
-              ) : speaking ? (
-                <Button variant="secondary" onPress={session.interrupt}>
-                  {copy.interrupt}
-                </Button>
-              ) : null}
-              {(!live || showComposer) && (
+              </View>
+              {unread && <Button onPress={session.continueText}>{copy.read}</Button>}
+              {showComposer && (
                 <MessageComposer
-                  busy={busy || listening || speaking}
-                  placeholder={harness.placeholder}
-                  sendLabel={harness.send}
-                  onSubmit={(message) => {
-                    session.submitText(message);
-                    setShowTools(false);
-                  }}
+                  busy={busy || listening || speaking || session.responsePending}
+                  placeholder={copy.placeholder}
+                  sendLabel={copy.send}
+                  onSubmit={session.submitText}
                 />
               )}
             </>
           )
         }
       >
-        {session.response !== '' && session.panel === null && (!live || showCaptions) && (
+        {session.response !== '' && (showCaptions || session.responsePending) && panel === null && (
           <View className="rounded-3xl bg-surface px-5 py-4">
             <Text className="text-lg leading-7 text-ink">{session.response}</Text>
           </View>
-        )}
-        {session.panel !== null && (
-          <HarnessPanelView
-            panel={session.panel}
-            locale={locale}
-            disabled={!actionable}
-            canEnd={connected && !busy && !listening && !speaking}
-            busy={busy || listening || speaking}
-            {...(!live && session.error !== null ? { intro: session.response } : {})}
-            onAction={session.act}
-            onDismiss={session.dismissPanel}
-          />
         )}
         {session.error !== null && <Note>{session.error}</Note>}
       </SessionStage>
       <Sheet
         visible={sheet === 'access' && canStart}
-        title={availability === 'available' ? copy.lab : copy.talk.greeting}
+        title={copy.access}
         closeLabel={harness.close}
         onClose={() => {
           setSheet(null);
         }}
       >
-        <Paragraph>
-          {availability === 'available'
-            ? copy.labNote
-            : availability === 'unsupported'
-              ? copy.talk.unsupported
-              : availability === 'unreachable'
-                ? copy.talk.unreachable
-                : copy.talk.disabled}
-        </Paragraph>
-        {availability === 'available' && (
+        {available ? (
           <>
-            <Note>{copy.talk.adultOnly}</Note>
+            <Paragraph>{copy.adult}</Paragraph>
+            <Note>{copy.privacy}</Note>
+            {session.recognitionSupported ? (
+              <Button
+                onPress={() => {
+                  connect(true);
+                }}
+              >
+                {copy.voice}
+              </Button>
+            ) : (
+              <Note>{copy.recognition}</Note>
+            )}
             <Button
+              variant="secondary"
               onPress={() => {
-                setSheet(null);
-                void session.startLive();
+                connect(false);
               }}
             >
-              {copy.consent}
+              {copy.typed}
             </Button>
           </>
+        ) : (
+          <Paragraph>{copy.unavailable}</Paragraph>
         )}
-        <Button variant="secondary" onPress={startExample}>
-          {copy.talk.typedExample}
-        </Button>
-        <Note>{harness.previewNote}</Note>
       </Sheet>
       <Sheet
         visible={sheet === 'details' && connected}
-        title={copy.talk.conversation}
+        title={copy.conversation}
         closeLabel={harness.close}
         onClose={() => {
           setSheet(null);
@@ -304,7 +269,28 @@ export function TalkScreen() {
             {copy.heard}: {session.transcript}
           </Note>
         )}
-        {session.response === '' && session.transcript === '' && <Note>{copy.talk.ready}</Note>}
+        {session.response === '' && session.transcript === '' && <Note>{copy.ready}</Note>}
+      </Sheet>
+      <Sheet
+        visible={panel !== null && connected && sheet === null}
+        title={panelTitle}
+        closeLabel={harness.close}
+        onClose={session.dismissPanel}
+      >
+        {panel !== null && (
+          <HarnessPanelView
+            panel={panel}
+            locale={locale}
+            presentation="sheet"
+            disabled={!actionable}
+            canEnd={connected}
+            busy={busy}
+            {...(session.responsePending ? { intro: session.response } : {})}
+            onAction={act}
+            onDismiss={session.dismissPanel}
+          />
+        )}
+        {unread && <Button onPress={session.continueText}>{copy.read}</Button>}
       </Sheet>
     </>
   );

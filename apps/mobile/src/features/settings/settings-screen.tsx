@@ -79,8 +79,8 @@ export function SettingsScreen() {
         </Note>
         <Text className="text-sm leading-6 text-muted">
           {id
-            ? 'Morii memiliki contoh percakapan terprogram. Percakapan AI langsung memerlukan konfigurasi server dan opt-in penguji dewasa.'
-            : 'Morii includes scripted conversation examples. Live AI needs a configured server and adult tester opt-in.'}
+            ? 'Percakapan AI dengan Morii masih untuk penguji dewasa dan memerlukan sambungan ke server. Pengenalan ucapan perangkat dapat memakai internet.'
+            : 'AI conversations with Morii are still for adult testers and need a server connection. Device speech recognition may use the internet.'}
         </Text>
         <Button
           variant="secondary"

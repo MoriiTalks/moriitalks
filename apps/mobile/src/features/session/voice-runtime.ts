@@ -7,7 +7,11 @@ export function voiceEndpoints(
   version: 1 | 2 = 1,
 ) {
   const fallback = platform === 'android' ? '10.0.2.2' : '127.0.0.1';
-  const base = new URL(configured ?? `http://${fallback}:8080`);
+  const defaultOrigin =
+    platform === 'web' && typeof window !== 'undefined'
+      ? window.location.origin
+      : `http://${fallback}:8080`;
+  const base = new URL(configured ?? defaultOrigin);
   const local = ['localhost', '127.0.0.1', '[::1]', '10.0.2.2'].includes(base.hostname);
   if (
     (base.protocol !== 'https:' && !(base.protocol === 'http:' && local)) ||
@@ -22,6 +26,15 @@ export function voiceEndpoints(
   const socket = new URL(path, base);
   socket.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
   return { config: new URL(`${path}/config`, base).href, socket: socket.href };
+}
+
+// Both transports share the same origin policy, the device route never uploads PCM.
+export function deviceTalkEndpoints(configured: string | undefined, platform: string) {
+  const endpoints = voiceEndpoints(configured, platform, 2);
+  return {
+    config: new URL('/v2/device-talk/config', endpoints.config).href,
+    socket: new URL('/v2/device-talk', endpoints.socket).href,
+  };
 }
 
 // Buffers one bounded reply and verifies its declared size before playback.

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"io"
 	"net"
@@ -306,22 +305,17 @@ func (p *cloudProviders) postProviderJSON(ctx context.Context, endpoint, key str
 	return data, nil
 }
 
-// Speak synthesizes a bounded reply with text escaped for SSML.
+// Speak synthesizes a bounded literal reply and preserves cancellation across HTTP and body reads.
 func (p *cloudProviders) Speak(ctx context.Context, options sessionOptions, text string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ssml, err := speechMarkup(options.Locale, p.config.AzureVoice, text)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	if !validReply(text) {
-		return nil, errLimit
-	}
-	var escaped bytes.Buffer
-	if xml.EscapeText(&escaped, []byte(text)) != nil {
-		return nil, errProvider
-	}
-	language := "en-US"
-	if options.Locale == "id" {
-		language = "id-ID"
-	}
-	ssml := `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="` + language + `"><voice name="` + p.config.AzureVoice + `"><lang xml:lang="` + language + `">` + escaped.String() + `</lang></voice></speak>`
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.azureURL, strings.NewReader(ssml))
 	if err != nil {
 		return nil, errProvider
@@ -332,13 +326,22 @@ func (p *cloudProviders) Speak(ctx context.Context, options sessionOptions, text
 	request.Header.Set("User-Agent", "moriitalks-voice-lab")
 	response, err := p.client.Do(request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, errProvider
 	}
 	defer response.Body.Close()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if response.StatusCode != http.StatusOK {
 		return nil, errProvider
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxAudioBytes+1))
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil || len(data) == 0 || len(data) > maxAudioBytes {
 		return nil, errProvider
 	}

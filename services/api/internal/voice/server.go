@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -20,6 +20,7 @@ type Server struct {
 	config         Config
 	providers      providers
 	harnessCoach   harnessProvider
+	deviceCoach    harnessProvider
 	slots          chan struct{}
 	mu             sync.Mutex
 	connections    map[*websocket.Conn]context.CancelFunc
@@ -31,7 +32,7 @@ type Server struct {
 // NewServer creates a lab server with process-local admission accounting.
 func NewServer(config Config) *Server {
 	cloud := newCloudProviders(config)
-	return &Server{config: config, providers: cloud, harnessCoach: cloud, slots: make(chan struct{}, 5), connections: make(map[*websocket.Conn]context.CancelFunc), captureTimeout: maxTurnSeconds * time.Second}
+	return &Server{config: config, providers: cloud, harnessCoach: cloud, deviceCoach: newDeviceHarnessCoach(config), slots: make(chan struct{}, 5), connections: make(map[*websocket.Conn]context.CancelFunc), captureTimeout: maxTurnSeconds * time.Second}
 }
 
 // Register adds the voice configuration and WebSocket routes.
@@ -40,14 +41,43 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/voice", s.connect)
 	mux.HandleFunc("GET /v2/voice/config", s.harnessConfiguration)
 	mux.HandleFunc("GET /v2/voice", s.connectHarness)
+	mux.HandleFunc("GET /v2/device-talk/config", s.deviceTalkConfiguration)
+	mux.HandleFunc("GET /v2/device-talk", s.connectDeviceTalk)
 }
 
-// Loopback Origin checks constrain browser callers, they do not authenticate users.
+// The default permits loopback development origins, origin checks do not authenticate users.
 func allowedOrigin(origin string) bool {
-	u, err := url.Parse(origin)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") &&
-		(u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1") &&
-		u.User == nil && u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+	u, err := parseOrigin(origin)
+	return err == nil && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1")
+}
+
+func (s *Server) allowedOrigin(origin string) bool {
+	if len(s.config.AllowedOrigins) == 0 {
+		return allowedOrigin(origin)
+	}
+	if _, err := parseOrigin(origin); err != nil {
+		return false
+	}
+	for _, allowed := range s.config.AllowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) originPatterns() []string {
+	if len(s.config.AllowedOrigins) == 0 {
+		return []string{"localhost", "localhost:*", "127.0.0.1", "127.0.0.1:*", `\[::1\]`, `\[::1\]:*`}
+	}
+	patterns := make([]string, 0, len(s.config.AllowedOrigins))
+	for _, origin := range s.config.AllowedOrigins {
+		if u, err := parseOrigin(origin); err == nil {
+			// Accept matches host patterns, the preceding check also enforces the exact scheme and port.
+			patterns = append(patterns, strings.NewReplacer("[", `\[`, "]", `\]`).Replace(u.Host))
+		}
+	}
+	return patterns
 }
 
 func (s *Server) configuration(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +86,7 @@ func (s *Server) configuration(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) configurationVersion(w http.ResponseWriter, r *http.Request, version int) {
 	if origin := r.Header.Get("Origin"); origin != "" {
-		if !allowedOrigin(origin) {
+		if !s.allowedOrigin(origin) {
 			http.Error(w, "Origin is not allowed", http.StatusForbidden)
 			return
 		}
@@ -73,7 +103,11 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) connectVersion(w http.ResponseWriter, r *http.Request, version int) {
-	if origin := r.Header.Get("Origin"); origin != "" && !allowedOrigin(origin) {
+	s.connectSession(w, r, version, false)
+}
+
+func (s *Server) connectSession(w http.ResponseWriter, r *http.Request, version int, deviceTalk bool) {
+	if origin := r.Header.Get("Origin"); origin != "" && !s.allowedOrigin(origin) {
 		http.Error(w, "Origin is not allowed", http.StatusForbidden)
 		return
 	}
@@ -84,7 +118,7 @@ func (s *Server) connectVersion(w http.ResponseWriter, r *http.Request, version 
 		http.Error(w, "Voice lab is busy", http.StatusTooManyRequests)
 		return
 	}
-	connection, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"localhost:*", "127.0.0.1:*", `\[::1\]:*`}, CompressionMode: websocket.CompressionDisabled})
+	connection, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: s.originPatterns(), CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return
 	}
@@ -100,7 +134,7 @@ func (s *Server) connectVersion(w http.ResponseWriter, r *http.Request, version 
 	s.connections[connection] = cancel
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.connections, connection); s.mu.Unlock() }()
-	session := &session{server: s, connection: connection, ctx: ctx, cancel: cancel}
+	session := &session{server: s, connection: connection, ctx: ctx, cancel: cancel, deviceTalk: deviceTalk}
 	if version == 2 {
 		session.harness = &harnessState{}
 		var id [16]byte
@@ -161,6 +195,7 @@ type session struct {
 	active      *turn
 	closed      bool
 	harness     *harnessState
+	deviceTalk  bool
 }
 
 func (s *session) run() {
@@ -231,6 +266,10 @@ func (s *session) start(message clientMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.started {
+		if s.deviceTalk && (!message.AdultConfirmed || !s.server.config.deviceTalkEnabled()) {
+			s.failureLocked(0, "unavailable", false)
+			return
+		}
 		if s.sessionID == "" {
 			var id [16]byte
 			if _, err := rand.Read(id[:]); err != nil {
@@ -242,7 +281,7 @@ func (s *session) start(message clientMessage) {
 		s.options = sessionOptions{message.Locale, message.Mode, message.Topic}
 		s.kind = "preview"
 		// Adult confirmation is a lab self-declaration, not age verification.
-		if message.AdultConfirmed && s.server.config.liveEnabled() {
+		if s.deviceTalk || (message.AdultConfirmed && s.server.config.liveEnabled()) {
 			s.kind = "live"
 		}
 		s.started = true
@@ -250,7 +289,7 @@ func (s *session) start(message clientMessage) {
 		s.failureLocked(0, "invalid_message", false)
 		return
 	}
-	value := s.server.limits(s.kind == "live")
+	value := s.limits()
 	s.sendLocked(event{Type: "session.ready", SessionID: s.sessionID, Kind: s.kind, Limits: &value})
 }
 
@@ -308,6 +347,10 @@ func (s *session) startTurnAtGeneration(message clientMessage, generation int) {
 		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "unavailable", true)
 		return
 	}
+	if s.deviceTalk {
+		s.failureGenerationLocked(message.TurnID, attemptedGeneration, "invalid_message", true)
+		return
+	}
 	if message.TurnID <= s.lastTurn {
 		return
 	}
@@ -350,7 +393,7 @@ func (s *session) receiveAudio(data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current := s.active
-	if s.kind != "live" || current == nil || current.committed {
+	if s.kind != "live" || s.deviceTalk || current == nil || current.committed {
 		s.failureLocked(0, "invalid_message", true)
 		return
 	}

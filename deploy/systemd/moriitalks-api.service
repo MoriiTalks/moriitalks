@@ -1,5 +1,5 @@
 [Unit]
-Description=MoriiTalks adult API lab
+Description=MoriiTalks adult demo API
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/etc/moriitalks/api.env
@@ -11,7 +11,7 @@ User=moriitalks-api
 WorkingDirectory=/opt/moriitalks
 EnvironmentFile=/etc/moriitalks/api.env
 Environment=GOMEMLIMIT=192MiB
-ExecStart=/opt/moriitalks/api
+ExecStart=/opt/moriitalks/current/api
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10

@@ -7,6 +7,7 @@ import {
   AudioReply,
   AudioUpload,
   captureDurationMs,
+  deviceTalkEndpoints,
   monoPCM,
   voiceEndpoints,
 } from './voice-runtime.ts';
@@ -20,6 +21,28 @@ void test('remote voice transport requires HTTPS and rejects embedded credential
     'wss://voice.example.com/v1/voice',
   );
   assert.equal(voiceEndpoints(undefined, 'android').config, 'http://10.0.2.2:8080/v1/voice/config');
+});
+
+void test('hosted web calls the same origin while explicit local development stays configurable', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { location: { origin: 'https://morii.example.com' } },
+  });
+  try {
+    assert.deepEqual(deviceTalkEndpoints(undefined, 'web'), {
+      config: 'https://morii.example.com/v2/device-talk/config',
+      socket: 'wss://morii.example.com/v2/device-talk',
+    });
+    assert.equal(
+      deviceTalkEndpoints('http://127.0.0.1:18080', 'web').config,
+      'http://127.0.0.1:18080/v2/device-talk/config',
+    );
+    assert.equal(voiceEndpoints(undefined, 'android').socket, 'ws://10.0.2.2:8080/v1/voice');
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'window', previous);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
 });
 
 void test('response audio is bounded and incomplete payloads cannot play', () => {

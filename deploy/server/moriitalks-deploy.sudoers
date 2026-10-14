@@ -1,0 +1,2 @@
+# The deployment account can restart only the sandboxed API service.
+morii-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart moriitalks-api.service

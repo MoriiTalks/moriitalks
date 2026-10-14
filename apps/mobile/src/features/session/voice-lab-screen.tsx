@@ -75,6 +75,12 @@ export function VoiceLabScreen() {
         status={copy.status[session.status]}
         state={session.status}
         animation={session.animation}
+        prop={
+          session.panel?.type === 'show_hint' || session.panel?.type === 'show_outline'
+            ? 'idea-card'
+            : 'none'
+        }
+        quiet={(session.panel !== null && !speaking) || sheet !== null || showTools}
         info={{ title: copy.lab, body: copy.labNote }}
         {...(!canReopen ? { onEnd: session.end } : {})}
         footer={

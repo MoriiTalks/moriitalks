@@ -9,6 +9,7 @@ import { Heading, Note, Paragraph, Title } from '@/components/typography';
 import { useLessonSpeech } from '@/features/learning/use-lesson-speech';
 import { useApp } from '@/state/app-context';
 
+import { SpeakerCheck } from './speaker-check';
 import { useMicrophoneCheck } from './use-microphone-check';
 import type { MicrophoneStatus } from './microphone-check';
 
@@ -17,8 +18,6 @@ export function DeviceCheckScreen() {
   const { locale } = useApp();
   const id = locale === 'id';
   const [confirmed, setConfirmed] = useState(false);
-  const [heard, setHeard] = useState<'yes' | 'no' | null>(null);
-  const [speakerAttempted, setSpeakerAttempted] = useState(false);
   const microphone = useMicrophoneCheck();
   const speaker = useLessonSpeech(locale);
   const speaking = speaker.state === 'starting' || speaker.state === 'speaking';
@@ -86,91 +85,7 @@ export function DeviceCheckScreen() {
         </Card>
       ) : (
         <>
-          <Card>
-            <Title>1. Speaker</Title>
-            <Note>
-              {id
-                ? 'Putar contoh, lalu periksa apakah terdengar jelas.'
-                : 'Play the example, then check whether you can hear it clearly.'}
-            </Note>
-            <Button
-              disabled={microphoneBusy}
-              onPress={() => {
-                setHeard(null);
-                setSpeakerAttempted(true);
-                if (speaking) speaker.stop();
-                else
-                  void speaker.play(
-                    id
-                      ? 'Saya akan menjelaskan cara merawat tanaman di kelas.'
-                      : 'I will explain how to care for our classroom plants.',
-                  );
-              }}
-            >
-              {speaking
-                ? id
-                  ? 'Hentikan contoh'
-                  : 'Stop example'
-                : id
-                  ? 'Putar contoh suara'
-                  : 'Play voice example'}
-            </Button>
-            {speaker.state === 'unavailable' && (
-              <Note>
-                {speaker.failure === 'voice'
-                  ? id
-                    ? 'Suara untuk bahasa ini belum tersedia. Periksa bahasa di pengaturan text-to-speech perangkat.'
-                    : 'A voice for this language is unavailable. Check languages in the device text-to-speech settings.'
-                  : speaker.failure === 'timeout'
-                    ? id
-                      ? 'Mesin suara belum merespons. Coba lagi atau periksa pengaturan text-to-speech perangkat.'
-                      : 'The speech engine did not respond. Try again or check device text-to-speech settings.'
-                    : id
-                      ? 'Contoh suara gagal diputar. Periksa mesin text-to-speech perangkat lalu coba lagi.'
-                      : 'The voice example could not play. Check the device text-to-speech engine and try again.'}
-              </Note>
-            )}
-            {speakerAttempted && speaker.state === 'idle' && (
-              <View className="flex-row gap-2">
-                <View className="flex-1">
-                  <Button
-                    variant="secondary"
-                    selected={heard === 'yes'}
-                    disabled={microphoneBusy}
-                    onPress={() => {
-                      setHeard('yes');
-                    }}
-                  >
-                    {id ? 'Terdengar' : 'I heard it'}
-                  </Button>
-                </View>
-                <View className="flex-1">
-                  <Button
-                    variant="secondary"
-                    selected={heard === 'no'}
-                    disabled={microphoneBusy}
-                    onPress={() => {
-                      setHeard('no');
-                    }}
-                  >
-                    {id ? 'Tidak terdengar' : 'I did not hear it'}
-                  </Button>
-                </View>
-              </View>
-            )}
-            {heard === 'no' && (
-              <Note>
-                {id
-                  ? 'Periksa volume media dan perangkat audio yang terhubung.'
-                  : 'Check media volume and connected audio devices.'}
-              </Note>
-            )}
-            <Note>
-              {id
-                ? 'Ini suara perangkat, belum suara final Morii.'
-                : 'This is a device voice, not Morii’s final voice.'}
-            </Note>
-          </Card>
+          <SpeakerCheck key={locale} locale={locale} disabled={microphoneBusy} speaker={speaker} />
           <Card>
             <Title>2. {id ? 'Mikrofon' : 'Microphone'}</Title>
             {microphone.supported ? (

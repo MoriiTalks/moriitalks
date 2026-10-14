@@ -18,11 +18,14 @@ const (
 	maxAudioBytes     = 512 * 1024
 	turnReserveUSD    = 0.10
 	defaultCoachModel = "gpt-6-luna"
+	maxAllowedOrigins = 8
 )
 
 // Config holds server-side provider credentials and voice lab admission budgets.
 type Config struct {
+	AllowedOrigins         []string
 	Enabled                bool
+	DeviceTalkEnabled      bool
 	DeepgramKey            string
 	OpenAIKey              string
 	CoachProvider          string
@@ -42,11 +45,20 @@ type Config struct {
 
 // ConfigFromEnv loads lab settings and rejects unsupported budgets or voices.
 func ConfigFromEnv() (Config, error) {
+	origins, err := parseAllowedOrigins(os.Getenv("API_ALLOWED_ORIGINS"))
+	if err != nil {
+		return Config{}, err
+	}
 	if value := os.Getenv("VOICE_LAB_ENABLED"); value != "" && value != "true" && value != "false" {
 		return Config{}, errors.New("VOICE_LAB_ENABLED must be true or false")
 	}
+	if value := os.Getenv("DEVICE_TALK_ENABLED"); value != "" && value != "true" && value != "false" {
+		return Config{}, errors.New("DEVICE_TALK_ENABLED must be true or false")
+	}
 	c := Config{
+		AllowedOrigins:         origins,
 		Enabled:                os.Getenv("VOICE_LAB_ENABLED") == "true",
+		DeviceTalkEnabled:      os.Getenv("DEVICE_TALK_ENABLED") == "true",
 		DeepgramKey:            strings.TrimSpace(os.Getenv("DEEPGRAM_API_KEY")),
 		OpenAIKey:              strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		CoachProvider:          envDefault("VOICE_COACH_PROVIDER", "openai"),
@@ -95,9 +107,85 @@ func ConfigFromEnv() (Config, error) {
 	return c, nil
 }
 
+var originHostLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// Origins are canonical browser origins, never URL prefixes or wildcard host patterns.
+func parseOrigin(origin string) (*url.URL, error) {
+	u, err := url.Parse(origin)
+	if err != nil || len(origin) > 512 || u.Host == "" || u.Opaque != "" || u.User != nil ||
+		u.Path != "" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+		origin != u.Scheme+"://"+u.Host || u.Host != strings.ToLower(u.Host) {
+		return nil, errors.New("invalid serialized origin")
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip == nil {
+		if len(host) > 253 {
+			return nil, errors.New("invalid origin hostname")
+		}
+		for _, label := range strings.Split(host, ".") {
+			if !originHostLabel.MatchString(label) {
+				return nil, errors.New("invalid origin hostname")
+			}
+		}
+	}
+	loopback := host == "localhost" || (ip != nil && ip.IsLoopback())
+	if u.Scheme != "https" && !(u.Scheme == "http" && loopback) {
+		return nil, errors.New("origin requires HTTPS outside loopback")
+	}
+	port := u.Port()
+	authority := host
+	if ip != nil && strings.Contains(host, ":") {
+		authority = "[" + host + "]"
+	}
+	if port != "" {
+		authority += ":" + port
+	}
+	if u.Host != authority {
+		return nil, errors.New("origin host or port is not canonical")
+	}
+	if port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 || strconv.Itoa(number) != port ||
+			(u.Scheme == "https" && number == 443) || (u.Scheme == "http" && number == 80) {
+			return nil, errors.New("origin port must be a canonical non-default port")
+		}
+	}
+	return u, nil
+}
+
+func parseAllowedOrigins(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	values := strings.Split(value, ",")
+	if len(value) > 4096 || len(values) > maxAllowedOrigins {
+		return nil, errors.New("API_ALLOWED_ORIGINS must contain at most eight exact origins")
+	}
+	origins := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		origin := strings.TrimSpace(value)
+		if _, err := parseOrigin(origin); err != nil {
+			return nil, errors.New("API_ALLOWED_ORIGINS requires exact serialized HTTPS origins, with HTTP allowed only on loopback")
+		}
+		if seen[origin] {
+			return nil, errors.New("API_ALLOWED_ORIGINS contains a duplicate origin")
+		}
+		seen[origin] = true
+		origins = append(origins, origin)
+	}
+	return origins, nil
+}
+
 // Live access needs both explicit enablement and a complete provider setup.
 func (c Config) liveEnabled() bool {
 	return c.Enabled && c.DeepgramKey != "" && c.OpenAIKey != "" && c.AzureKey != "" && c.AzureRegion != "" && c.coachConfigured()
+}
+
+// Device Talk is a separate adult lab, it cannot enable the cloud speech pipeline.
+func (c Config) deviceTalkEnabled() bool {
+	return c.DeviceTalkEnabled && c.coachProvider() == "hermes" && c.coachConfigured()
 }
 
 func envDefault(key, fallback string) string {

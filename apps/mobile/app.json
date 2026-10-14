@@ -22,13 +22,21 @@
     "plugins": [
       "expo-router",
       [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "MoriiTalks uses your microphone only during a voice conversation you start.",
+          "speechRecognitionPermission": "MoriiTalks uses device speech recognition to turn your words into text during a voice conversation."
+        }
+      ],
+      [
         "expo-audio",
         {
           "microphonePermission": "MoriiTalks uses your microphone only when you start a voice turn.",
           "enableBackgroundRecording": false,
           "enableBackgroundPlayback": false
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true

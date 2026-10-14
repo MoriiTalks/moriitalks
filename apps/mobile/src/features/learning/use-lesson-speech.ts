@@ -1,9 +1,9 @@
 import { useFocusEffect } from 'expo-router';
-import * as Speech from 'expo-speech';
 import { useCallback, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import type { Locale } from '@/state/app-context';
+import * as Speech from '@/features/session/device-speech';
 
 import { selectDeviceVoice } from './device-voice';
 
@@ -18,12 +18,14 @@ function isForeground() {
 export function useLessonSpeech(locale: Locale) {
   const [state, setState] = useState<SpeechState>('idle');
   const [failure, setFailure] = useState<SpeechFailure | null>(null);
+  const [completed, setCompleted] = useState(false);
   const request = useRef(0);
   const focused = useRef(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const cancel = useCallback(() => {
     const current = ++request.current;
+    setCompleted(false);
     clearTimeout(timeout.current);
     timeout.current = undefined;
     void Speech.stop().catch(() => {
@@ -48,18 +50,20 @@ export function useLessonSpeech(locale: Locale) {
       });
       return () => {
         focused.current = false;
-        cancel();
+        stop();
         listener.remove();
       };
-    }, [cancel, stop]),
+    }, [stop]),
   );
 
   async function play(text: string) {
     if (!focused.current || !isForeground()) return;
     const current = ++request.current;
     clearTimeout(timeout.current);
+    setCompleted(false);
     setFailure(null);
     setState('starting');
+    let started = false;
     const active = () => focused.current && request.current === current;
     const fail = (reason: SpeechFailure) => {
       if (!active()) return;
@@ -87,17 +91,24 @@ export function useLessonSpeech(locale: Locale) {
         rate: 0.9,
         onStart: () => {
           if (!active()) return;
+          started = true;
           clearTimeout(timeout.current);
           setState('speaking');
         },
         onDone: () => {
           if (!active()) return;
+          if (!started) {
+            fail('playback');
+            return;
+          }
           clearTimeout(timeout.current);
+          setCompleted(true);
           setState('idle');
         },
         onStopped: () => {
           if (!active()) return;
           clearTimeout(timeout.current);
+          setCompleted(false);
           setState('idle');
         },
         onError: () => {
@@ -109,5 +120,5 @@ export function useLessonSpeech(locale: Locale) {
     }
   }
 
-  return { state, failure, play, stop };
+  return { state, failure, completed, play, stop };
 }

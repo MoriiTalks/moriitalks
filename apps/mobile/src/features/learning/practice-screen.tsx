@@ -11,6 +11,7 @@ import type { ScrollView } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Icon } from '@/components/icon';
+import { IconButton } from '@/components/icon-button';
 import { Morii } from '@/components/morii';
 import { Screen } from '@/components/screen';
 import { Heading, Note } from '@/components/typography';
@@ -48,16 +49,13 @@ export function PracticeScreen() {
               >
                 {selectedLesson.locales[locale].title}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={id ? 'Tutup detail' : 'Close details'}
+              <IconButton
+                icon="close"
+                label={id ? 'Tutup detail' : 'Close details'}
                 onPress={() => {
                   setSelectedId(undefined);
                 }}
-                className="size-11 items-center justify-center rounded-full active:bg-mint"
-              >
-                <Icon name="close" size={20} />
-              </Pressable>
+              />
             </View>
             <Note>
               {available

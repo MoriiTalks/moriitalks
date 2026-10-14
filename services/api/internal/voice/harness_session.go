@@ -12,8 +12,9 @@ import (
 )
 
 type harnessHistory struct {
-	Speech     string `json:"speech"`
-	HeardReply string `json:"heardReply"`
+	Speech     string        `json:"speech"`
+	HeardReply string        `json:"heardReply"`
+	Panel      *harnessPanel `json:"panel,omitempty"`
 }
 
 type harnessMission struct {
@@ -37,6 +38,7 @@ type harnessPending struct {
 	generation   int
 	id           string
 	reply        harnessReply
+	panelContext *harnessPanel // Dismissal hides controls, presentation ACK retains the original context.
 	historyIndex int
 	played       bool
 	presented    bool
@@ -89,6 +91,7 @@ func (s *session) handleHarness(data []byte) bool {
 		} else if !pending.played {
 			pending.played = true
 			s.harness.history[pending.historyIndex].HeardReply = pending.reply.Text
+			s.harness.history[pending.historyIndex].Panel = pending.panelContext
 		}
 		s.mu.Unlock()
 		return true
@@ -102,6 +105,11 @@ func (s *session) handleHarness(data []byte) bool {
 		s.mu.Unlock()
 		return true
 	case "turn.commit", "turn.cancel":
+		if s.deviceTalk && command.Type == "turn.commit" {
+			s.failureHarnessCommandLocked(command, "invalid_message", true)
+			s.mu.Unlock()
+			return true
+		}
 		if command.Generation != s.harness.generation || command.TurnID != s.lastTurn {
 			s.failureHarnessCommandLocked(command, "invalid_message", true)
 			s.mu.Unlock()
@@ -115,7 +123,7 @@ func (s *session) handleHarness(data []byte) bool {
 		}
 		return true
 	}
-	if s.active != nil || command.TurnID != s.lastTurn+1 || command.Generation != s.harness.generation+1 || command.TurnID > s.server.limits(s.kind == "live").MaxTurns {
+	if s.active != nil || command.TurnID != s.lastTurn+1 || command.Generation != s.harness.generation+1 || command.TurnID > s.limits().MaxTurns {
 		s.failureHarnessCommandLocked(command, "invalid_message", true)
 		s.mu.Unlock()
 		return true
@@ -127,7 +135,7 @@ func (s *session) handleHarness(data []byte) bool {
 			s.mu.Unlock()
 			return true
 		}
-		command.Text = actionSpeech(command.ActionID, s.options.Locale)
+		command.Text = actionSpeech(command.ActionID, s.options.Locale, pending.reply.Panel)
 	}
 	if command.Type == "turn.start" {
 		if s.kind != "live" {
@@ -177,6 +185,10 @@ func (s *session) failureHarnessCommandLocked(command harnessCommand, code strin
 }
 
 func (s *session) reserveHarnessLocked(command harnessCommand) bool {
+	if s.deviceTalk {
+		// Device admission bounds model calls, it does not estimate subscription cost.
+		return command.TurnID <= maxTurns
+	}
 	if s.reservedUSD+turnReserveUSD > s.server.config.MaxSessionUSD+0.000001 {
 		s.failureHarnessCommandLocked(command, "limit", false)
 		return false
@@ -218,7 +230,17 @@ func allowedHarnessAction(panel *harnessPanel, action string) bool {
 }
 
 // UI actions become server-owned content, the model cannot execute arbitrary operations.
-func actionSpeech(action, locale string) string {
+func actionSpeech(action, locale string, panel *harnessPanel) string {
+	if panel != nil && panel.Type == "show_choices" {
+		for _, choice := range panel.Choices {
+			if choice.ID == action {
+				if locale == "id" {
+					return fmt.Sprintf("Aku memilih topik %q.", choice.Label)
+				}
+				return fmt.Sprintf("I choose the topic %q.", choice.Label)
+			}
+		}
+	}
 	if locale == "id" {
 		switch action {
 		case "hobby":
@@ -281,6 +303,8 @@ func (s *session) respondHarness(current *turn, speech string, completedAudio ti
 	var err error
 	if kind == "preview" {
 		response = scriptedHarnessReply(input)
+	} else if s.deviceTalk {
+		response, err = s.server.deviceCoach.RespondHarness(current.ctx, input)
 	} else {
 		response, err = s.server.harnessCoach.RespondHarness(current.ctx, input)
 	}
@@ -310,15 +334,18 @@ func (s *session) respondHarness(current *turn, speech string, completedAudio ti
 		s.harness.mission.Attempts++
 	}
 	responseID := fmt.Sprintf("%s-%d", s.sessionID, current.generation)
-	s.harness.pending = &harnessPending{turnID: current.id, generation: current.generation, id: responseID, reply: response, historyIndex: len(s.harness.history) - 1}
+	s.harness.pending = &harnessPending{turnID: current.id, generation: current.generation, id: responseID, reply: response, panelContext: response.Panel, historyIndex: len(s.harness.history) - 1}
 	s.sendLocked(event{Type: "transcript", TurnID: current.id, Text: speech, Final: pointer(true)})
 	source := "script"
 	if kind == "live" {
 		source = "ai"
 	}
 	s.sendLocked(event{Type: "turn.response", TurnID: current.id, ResponseID: responseID, Text: response.Text, Source: source, Animation: response.Animation, Panel: panel})
-	if kind == "preview" {
+	if kind == "preview" || s.deviceTalk {
 		s.harness.pending.presented = true
+		if s.deviceTalk {
+			s.sendLocked(event{Type: "turn.metrics", TurnID: current.id, ResponseID: responseID, STTMs: pointer(int64(0)), CoachMs: pointer(coachMs), TTSMs: pointer(int64(0)), TotalMs: pointer(time.Since(completedAudio).Milliseconds()), AudioSeconds: pointer(float64(0)), InputTokens: pointer(response.InputTokens), OutputTokens: pointer(response.OutputTokens), TTSCharacters: pointer(0)})
+		}
 		s.sendLocked(event{Type: "turn.state", TurnID: current.id, State: "ready"})
 		s.active = nil
 		s.mu.Unlock()
@@ -357,11 +384,25 @@ func (s *session) respondHarness(current *turn, speech string, completedAudio ti
 	s.active = nil
 }
 
-// Keep whole recent turns within a small text budget, without inventing a history summary.
+// The largest valid feedback panel contains at most 622 visible text units.
+const maxHarnessPanelContext = 640
+
+func harnessPanelContextText(panel *harnessPanel) string {
+	if panel == nil {
+		return ""
+	}
+	return strings.TrimSpace(harnessVisibleText(harnessReply{Panel: panel}))
+}
+
+func harnessHistoryUnits(turn harnessHistory) int {
+	return textUnits(turn.Speech) + textUnits(turn.HeardReply) + textUnits(harnessPanelContextText(turn.Panel))
+}
+
+// Keep whole recent turns and acknowledged drawers within one text budget.
 func boundedHarnessHistory(history []harnessHistory) []harnessHistory {
 	start, units := len(history), 0
 	for index := len(history) - 1; index >= 0 && len(history)-index <= 6; index-- {
-		current := textUnits(history[index].Speech) + textUnits(history[index].HeardReply)
+		current := harnessHistoryUnits(history[index])
 		if units+current > 3000 {
 			break
 		}

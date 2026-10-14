@@ -270,9 +270,11 @@ func TestAzureEscapesSSMLAndBoundsAudio(t *testing.T) {
 	requestValid := make(chan bool, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
-		requestValid <- r.Header.Get("Ocp-Apim-Subscription-Key") == "test" &&
+		requestValid <- r.Method == http.MethodPost && r.Header.Get("Ocp-Apim-Subscription-Key") == "test" &&
+			r.Header.Get("Content-Type") == "application/ssml+xml" && r.Header.Get("User-Agent") == "moriitalks-voice-lab" &&
 			r.Header.Get("X-Microsoft-OutputFormat") == "audio-24khz-48kbitrate-mono-mp3" &&
-			strings.Contains(string(data), `xml:lang="id-ID"`) && strings.Contains(string(data), "&lt;script&gt;&amp;") &&
+			strings.Contains(string(data), `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">`) &&
+			strings.Contains(string(data), `<lang xml:lang="id-ID">`) && strings.Contains(string(data), "&lt;script&gt;&amp;") &&
 			!strings.Contains(string(data), "<script>")
 		_, _ = io.WriteString(w, "ID3test-audio")
 	}))
@@ -292,4 +294,137 @@ func TestAzureEscapesSSMLAndBoundsAudio(t *testing.T) {
 	if _, err := provider.Speak(context.Background(), sessionOptions{Locale: "en"}, "Example"); !errors.Is(err, errProvider) {
 		t.Fatalf("oversized audio error=%v", err)
 	}
+}
+
+func TestAzureRejectsInvalidSpeechBeforeHTTP(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, "ID3unexpected")
+	}))
+	defer server.Close()
+	for _, tc := range []struct {
+		name, locale, voice, text string
+		want                      error
+	}{
+		{"locale", "fr", "en-US-AvaMultilingualNeural", "Example.", errProvider},
+		{"voice", "en", "en-US-GuyNeural", "Example.", errProvider},
+		{"malformed UTF8", "en", "en-US-AvaMultilingualNeural", string([]byte{0xff}), errProvider},
+		{"XML control", "en", "en-US-AvaMultilingualNeural", "Example\x00", errProvider},
+		{"word limit", "en", "en-US-AvaMultilingualNeural", strings.Repeat("word ", 46), errLimit},
+		{"UTF16 limit", "en", "en-US-AvaMultilingualNeural", strings.Repeat("🙂", 201), errLimit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := labConfig()
+			config.AzureVoice = tc.voice
+			provider := newCloudProviders(config)
+			provider.azureURL = server.URL
+			audio, err := provider.Speak(context.Background(), sessionOptions{Locale: tc.locale}, tc.text)
+			if audio != nil || !errors.Is(err, tc.want) || calls.Load() != 0 {
+				t.Fatalf("audio=%q, error=%v, requests=%d", audio, err, calls.Load())
+			}
+		})
+	}
+}
+
+func TestAzureRejectsCancelledSpeechBeforeHTTP(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, "ID3unexpected")
+	}))
+	defer server.Close()
+	provider := newCloudProviders(labConfig())
+	provider.azureURL = server.URL
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if audio, err := provider.Speak(ctx, sessionOptions{Locale: "en"}, "Example."); audio != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("audio=%q, error=%v", audio, err)
+	}
+	ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if audio, err := provider.Speak(ctx, sessionOptions{Locale: "en"}, "Example."); audio != nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("audio=%q, error=%v", audio, err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("cancelled speech made %d requests", calls.Load())
+	}
+}
+
+func TestAzurePreservesCancellationDuringHTTPAndBodyRead(t *testing.T) {
+	for _, phase := range []string{"headers", "body"} {
+		t.Run(phase, func(t *testing.T) {
+			started := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				if phase == "body" {
+					_, _ = io.WriteString(w, "ID3partial")
+					if http.NewResponseController(w).Flush() != nil {
+						return
+					}
+				} else {
+					started <- struct{}{}
+				}
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			provider := newCloudProviders(labConfig())
+			provider.azureURL = server.URL
+			if phase == "body" {
+				provider.client.Transport = speechReadTransport{provider.client.Transport, started}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				audio, err := provider.Speak(ctx, sessionOptions{Locale: "en"}, "Example.")
+				if audio != nil {
+					done <- fmt.Errorf("cancelled speech returned audio: %q", audio)
+					return
+				}
+				done <- err
+			}()
+			select {
+			case <-started:
+				cancel()
+			case <-ctx.Done():
+				t.Fatal("speech did not reach the expected cancellation phase")
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancellation error=%v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("cancelled speech did not return")
+			}
+		})
+	}
+}
+
+// The local HTTP test signals the first body read instead of relying on timing to cancel it.
+type speechReadTransport struct {
+	base    http.RoundTripper
+	started chan struct{}
+}
+
+func (transport speechReadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := transport.base.RoundTrip(request)
+	if err == nil {
+		response.Body = speechReadBody{response.Body, transport.started}
+	}
+	return response, err
+}
+
+type speechReadBody struct {
+	io.ReadCloser
+	started chan struct{}
+}
+
+func (body speechReadBody) Read(data []byte) (int, error) {
+	select {
+	case body.started <- struct{}{}:
+	default:
+	}
+	return body.ReadCloser.Read(data)
 }
