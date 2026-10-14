@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { browserSpeechEnvironment, createBrowserSpeech } from './browser-speech.ts';
-import type { BrowserRecognition } from './browser-speech.ts';
+import type { BrowserRecognition, BrowserSpeechEnvironment } from './browser-speech.ts';
 import type { RecognitionCallbacks } from './device-talk-session.ts';
 
 class FakeRecognition implements BrowserRecognition {
@@ -34,7 +34,7 @@ class FakeRecognition implements BrowserRecognition {
   }
 }
 
-function fixture() {
+function fixture(startMeter?: BrowserSpeechEnvironment['startMeter']) {
   const instances: FakeRecognition[] = [];
   const events: unknown[] = [];
   const callbacks: RecognitionCallbacks = {
@@ -45,6 +45,7 @@ function fixture() {
   };
   const driver = createBrowserSpeech(() => ({
     secureContext: true,
+    ...(startMeter === undefined ? {} : { startMeter }),
     create: () => {
       const instance = new FakeRecognition();
       instances.push(instance);
@@ -245,4 +246,75 @@ void test('a synchronous start failure detaches handlers and releases the captur
   assert.equal(instance.onresult, null);
   assert.equal(instance.onend, null);
   assert.equal(await driver.permission(), true);
+});
+
+void test('input metering starts only after recognition starts and stale levels stop at capture end', () => {
+  let emitLevel: (level: number | null) => void = () => undefined;
+  let opened = 0;
+  let stopped = 0;
+  const levels: (number | null)[] = [];
+  const f = fixture((level) => {
+    opened += 1;
+    emitLevel = level;
+    return () => {
+      stopped += 1;
+    };
+  });
+  const capture = f.driver.recognize('id', {
+    ...f.callbacks,
+    level: (level) => levels.push(level),
+  });
+  assert.equal(opened, 0);
+  f.latest().onstart?.();
+  assert.equal(opened, 1);
+  emitLevel(0.25);
+  assert.deepEqual(levels, [0.25]);
+  capture.stop();
+  assert.equal(stopped, 1);
+  emitLevel(0.9);
+  f.latest().onend?.();
+  assert.deepEqual(levels, [0.25, null]);
+  assert.equal(stopped, 1);
+});
+
+for (const ending of ['error', 'end', 'abort'] as const) {
+  void test(`recognition ${ending} promptly releases its meter without leaking late levels`, async () => {
+    let emitLevel: (level: number | null) => void = () => undefined;
+    let stopped = 0;
+    const levels: (number | null)[] = [];
+    const f = fixture((level) => {
+      emitLevel = level;
+      return () => {
+        stopped += 1;
+      };
+    });
+    const capture = f.driver.recognize('en', {
+      ...f.callbacks,
+      level: (level) => levels.push(level),
+    });
+    f.latest().onstart?.();
+    emitLevel(0.5);
+    let drained: Promise<void> | undefined;
+    if (ending === 'error') f.latest().onerror?.({ error: 'no-speech' });
+    else if (ending === 'end') f.latest().onend?.();
+    else drained = capture.abort();
+    assert.equal(stopped, 1);
+    emitLevel(0.8);
+    f.latest().onend?.();
+    await drained;
+    assert.deepEqual(levels, [0.5, null]);
+  });
+}
+
+void test('an unavailable input meter leaves speech recognition working', () => {
+  const levels: (number | null)[] = [];
+  const f = fixture(() => {
+    throw new Error('Web Audio is unavailable.');
+  });
+  f.driver.recognize('en', { ...f.callbacks, level: (level) => levels.push(level) });
+  f.latest().onstart?.();
+  f.latest().onresult?.(result('Speech still works.', true));
+  f.latest().onend?.();
+  assert.deepEqual(f.events, ['started', { text: 'Speech still works.', final: true }, 'ended']);
+  assert.deepEqual(levels, [null]);
 });

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { HarnessActionId } from '@contracts/harness';
@@ -14,6 +15,7 @@ import { harnessCopy } from './harness-copy';
 import { HarnessPanelView } from './harness-panel';
 import { sessionCopy } from './session-copy';
 import { SessionStage } from './session-stage';
+import { talkVoiceControl } from './talk-control';
 import { useDeviceTalk } from './use-device-talk';
 
 // Draft text stays on this screen, submission is always an explicit action.
@@ -71,26 +73,41 @@ export function TalkScreen() {
   const [sheet, setSheet] = useState<'access' | 'details' | null>(null);
   const [checking, setChecking] = useState(false);
   const [available, setAvailable] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [voiceChoice, setVoiceChoice] = useState(true);
+  const [exitIntent, setExitIntent] = useState<'end' | 'back' | null>(null);
   const connected = session.connected;
   const busy = checking || session.status === 'connecting' || session.status === 'thinking';
   const listening = session.status === 'listening';
   const speaking = session.status === 'speaking';
-  const exhausted = connected && session.remainingTurns === 0 && session.status === 'ready';
+  const exhausted =
+    connected &&
+    session.remainingTurns === 0 &&
+    (session.status === 'ready' || session.status === 'paused');
   const canStart = !connected && session.status !== 'connecting' && !checking;
-  const unread = session.responsePending && session.status === 'ready';
-  const canInterrupt = speaking || session.status === 'thinking';
-  const microphoneDisabled = unread || (!session.recognitionSupported && !canInterrupt);
+  const unread =
+    session.responsePending && (session.status === 'ready' || session.status === 'paused');
+  const control = talkVoiceControl(
+    session.status,
+    session.recognitionSupported,
+    session.responsePending,
+  );
   const actionable =
-    session.status === 'ready' &&
+    (session.status === 'ready' || session.status === 'paused') &&
     session.responseId !== null &&
     !session.responsePending &&
     !exhausted;
-  const primaryLabel =
-    speaking || session.status === 'thinking'
-      ? copy.interrupt
-      : listening
-        ? copy.finish
-        : copy.resume;
+  const status = checking
+    ? sessionCopy[locale].wait
+    : listening
+      ? copy.microphoneOn
+      : session.status === 'ready' || session.status === 'paused'
+        ? copy.microphoneOff
+        : sessionCopy[locale].status[session.status];
+  const level =
+    listening && session.inputLevel !== null
+      ? Math.round(Math.sqrt(Math.max(0, Math.min(1, session.inputLevel))) * 100)
+      : null;
   const panel = session.panel;
   const panelTitle =
     panel !== null && 'title' in panel
@@ -100,6 +117,12 @@ export function TalkScreen() {
         : harness.end;
 
   async function begin() {
+    if (confirmed) {
+      setShowComposer(!voiceChoice);
+      if (exhausted) void session.connect(voiceChoice);
+      else void session.reconnect(voiceChoice);
+      return;
+    }
     setChecking(true);
     const enabled = await session.checkAvailability();
     setAvailable(enabled === true);
@@ -108,6 +131,8 @@ export function TalkScreen() {
   }
   function connect(voice: boolean) {
     setSheet(null);
+    setConfirmed(true);
+    setVoiceChoice(voice);
     setShowComposer(!voice);
     void session.connect(voice);
   }
@@ -116,14 +141,39 @@ export function TalkScreen() {
     setShowComposer(false);
     session.end();
   }
+  function goBack() {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }
+  function requestExit(intent: 'end' | 'back') {
+    if (!connected && session.status !== 'connecting') {
+      if (intent === 'back') goBack();
+      else end();
+      return;
+    }
+    session.pause();
+    setSheet(null);
+    setExitIntent(intent);
+  }
+  function confirmExit() {
+    const leaving = exitIntent === 'back';
+    setExitIntent(null);
+    end();
+    if (leaving) goBack();
+  }
   function pressMicrophone() {
     setShowComposer(false);
-    if (listening) session.finishVoice();
-    else if (speaking || session.status === 'thinking') session.interrupt();
-    else session.resume();
+    if (control.action === 'resume' || control.action === 'interrupt') {
+      setVoiceChoice(session.recognitionSupported);
+    }
+    if (control.action === 'pause') session.pause();
+    else if (control.action === 'interrupt') {
+      session.interrupt();
+      if (session.recognitionSupported) session.resume();
+    } else if (control.action === 'resume') session.resume();
   }
   function act(action: HarnessActionId) {
-    if (action === 'end_session') end();
+    if (action === 'end_session') requestExit('end');
     else session.act(action);
   }
   const actions = connected
@@ -147,78 +197,145 @@ export function TalkScreen() {
   return (
     <>
       <SessionStage
-        status={checking ? sessionCopy[locale].wait : sessionCopy[locale].status[session.status]}
+        status=""
         state={session.status}
         animation={session.animation}
         prop={panel?.type === 'show_hint' || panel?.type === 'show_outline' ? 'idea-card' : 'none'}
-        quiet={(panel !== null && !speaking) || sheet !== null || showComposer}
+        quiet={
+          (panel !== null && !speaking) || sheet !== null || exitIntent !== null || showComposer
+        }
         info={{ title: sessionCopy[locale].talk.title, body: copy.about, actions }}
         onInfoOpen={session.pause}
+        onBack={() => {
+          requestExit('back');
+        }}
         {...(canStart ? { onMoriiPress: () => void begin(), moriiLabel: copy.start } : {})}
-        {...(connected || session.status === 'connecting' ? { onEnd: end } : {})}
+        {...(connected || session.status === 'connecting'
+          ? {
+              onEnd: () => {
+                requestExit('end');
+              },
+            }
+          : {})}
         footer={
-          !connected ? (
-            <Text className="py-3 text-center text-lg leading-7 text-muted">
-              {busy ? sessionCopy[locale].wait : copy.start}
+          <>
+            <Text
+              accessibilityLiveRegion="polite"
+              className="text-center text-sm leading-5 text-teal"
+            >
+              {status}
             </Text>
-          ) : exhausted ? (
-            <View className="gap-2">
-              <Note>{copy.limit}</Note>
-              <Button onPress={end}>{copy.end}</Button>
-            </View>
-          ) : (
-            <>
-              <View className="flex-row items-center justify-center gap-6">
-                <IconButton
-                  icon="pause"
-                  label={copy.pause}
-                  disabled={!session.voiceActive && !listening && !speaking && !busy}
-                  onPress={session.pause}
-                />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={primaryLabel}
-                  accessibilityState={{ disabled: microphoneDisabled }}
-                  disabled={microphoneDisabled}
-                  onPress={pressMicrophone}
-                  className={`size-18 items-center justify-center rounded-full ${listening ? 'bg-peach' : 'bg-teal'} ${microphoneDisabled ? 'opacity-40' : 'active:opacity-75'}`}
-                >
-                  <Icon
-                    name={speaking || busy ? 'pause' : listening ? 'check' : 'mic'}
-                    size={28}
-                    color={listening ? '#183D37' : '#FFFFFF'}
-                  />
-                </Pressable>
-                <IconButton
-                  icon="chat"
-                  label={showComposer ? copy.keyboardClose : copy.type}
-                  expanded={showComposer}
-                  onPress={() => {
-                    session.pause();
-                    setShowComposer(!showComposer);
-                  }}
+            {level !== null && (
+              <View
+                accessibilityRole="progressbar"
+                accessibilityLabel={copy.inputLevel}
+                accessibilityValue={{ min: 0, max: 100, now: level }}
+                className="h-2 overflow-hidden rounded-full bg-line"
+              >
+                <View
+                  className="h-full w-full rounded-full bg-teal"
+                  style={{ transform: [{ scaleX: level / 100 }], transformOrigin: 'left center' }}
                 />
               </View>
-              {unread && <Button onPress={session.continueText}>{copy.read}</Button>}
-              {showComposer && (
-                <MessageComposer
-                  busy={busy || listening || speaking || session.responsePending}
-                  placeholder={copy.placeholder}
-                  sendLabel={copy.send}
-                  onSubmit={session.submitText}
-                />
-              )}
-            </>
-          )
+            )}
+            {session.transcript !== '' && (
+              <Text numberOfLines={2} className="text-center text-base leading-6 text-muted">
+                {copy.heard}: {session.transcript}
+              </Text>
+            )}
+            {!connected || exhausted ? (
+              <>
+                {exhausted && <Note>{copy.limit}</Note>}
+                {!connected && confirmed && session.error !== null && (
+                  <Note>{copy.newSession}</Note>
+                )}
+                <Button disabled={busy} onPress={() => void begin()}>
+                  {confirmed
+                    ? session.error !== null
+                      ? copy.reconnect
+                      : copy.newConversation
+                    : copy.start}
+                </Button>
+              </>
+            ) : (
+              <>
+                <View className="flex-row items-center justify-center gap-3">
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={copy[control.label]}
+                    accessibilityState={{ disabled: control.disabled }}
+                    disabled={control.disabled}
+                    onPress={pressMicrophone}
+                    className={`min-h-14 min-w-0 flex-1 flex-row items-center justify-center gap-3 rounded-full px-5 py-3 ${listening ? 'bg-peach' : 'bg-teal'} ${control.disabled ? 'opacity-40' : 'active:opacity-75'}`}
+                  >
+                    <Icon name={control.icon} size={24} color={listening ? '#183D37' : '#FFFFFF'} />
+                    <Text
+                      className={`shrink text-center text-base font-semibold ${listening ? 'text-ink' : 'text-white'}`}
+                    >
+                      {copy[control.label]}
+                    </Text>
+                  </Pressable>
+                  <View className="w-26">
+                    <Button
+                      variant="secondary"
+                      expanded={showComposer}
+                      onPress={() => {
+                        session.pause();
+                        if (!showComposer) setVoiceChoice(false);
+                        setShowComposer(!showComposer);
+                      }}
+                    >
+                      {showComposer ? copy.keyboardClose : copy.type}
+                    </Button>
+                  </View>
+                </View>
+                {listening && session.transcript !== '' && (
+                  <Button variant="secondary" onPress={session.finishVoice}>
+                    {copy.finish}
+                  </Button>
+                )}
+                {unread && <Button onPress={session.continueText}>{copy.read}</Button>}
+                {showComposer && (
+                  <MessageComposer
+                    busy={busy || listening || speaking || session.responsePending}
+                    placeholder={copy.placeholder}
+                    sendLabel={copy.send}
+                    onSubmit={session.submitText}
+                  />
+                )}
+              </>
+            )}
+          </>
         }
       >
-        {session.response !== '' && (showCaptions || session.responsePending) && panel === null && (
-          <View className="rounded-3xl bg-surface px-5 py-4">
-            <Text className="text-lg leading-7 text-ink">{session.response}</Text>
-          </View>
-        )}
+        {session.response !== '' &&
+          (showCaptions || session.responsePending || !connected) &&
+          (panel === null || !connected) && (
+            <View className="rounded-3xl bg-surface px-5 py-4">
+              <Text className="text-lg leading-7 text-ink">{session.response}</Text>
+            </View>
+          )}
         {session.error !== null && <Note>{session.error}</Note>}
       </SessionStage>
+      <Sheet
+        visible={exitIntent !== null}
+        title={exitIntent === 'back' ? copy.leaveTitle : copy.endTitle}
+        closeLabel={copy.stay}
+        onClose={() => {
+          setExitIntent(null);
+        }}
+      >
+        <Paragraph>{copy.exitBody}</Paragraph>
+        <Button onPress={confirmExit}>{exitIntent === 'back' ? copy.leave : copy.end}</Button>
+        <Button
+          variant="secondary"
+          onPress={() => {
+            setExitIntent(null);
+          }}
+        >
+          {copy.stay}
+        </Button>
+      </Sheet>
       <Sheet
         visible={sheet === 'access' && canStart}
         title={copy.access}
@@ -272,7 +389,7 @@ export function TalkScreen() {
         {session.response === '' && session.transcript === '' && <Note>{copy.ready}</Note>}
       </Sheet>
       <Sheet
-        visible={panel !== null && connected && sheet === null}
+        visible={panel !== null && connected && sheet === null && exitIntent === null}
         title={panelTitle}
         closeLabel={harness.close}
         onClose={session.dismissPanel}

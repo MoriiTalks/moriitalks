@@ -48,6 +48,7 @@ export function SessionStage({
   onMoriiPress,
   moriiLabel,
   onEnd,
+  onBack,
   onInfoOpen,
 }: PropsWithChildren<{
   status: string;
@@ -64,6 +65,7 @@ export function SessionStage({
   onMoriiPress?: () => void;
   moriiLabel?: string;
   onEnd?: () => void;
+  onBack?: () => void;
   onInfoOpen?: () => void;
 }>) {
   const { locale } = useApp();
@@ -123,18 +125,20 @@ export function SessionStage({
           />
         </View>
       )}
-      <Text
-        pointerEvents="none"
-        accessibilityLiveRegion="polite"
-        className="text-center text-sm leading-5 text-teal"
-        style={
-          active
-            ? undefined
-            : { position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'hidden' }
-        }
-      >
-        {status}
-      </Text>
+      {status !== '' && (
+        <Text
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          className="text-center text-sm leading-5 text-teal"
+          style={
+            active
+              ? undefined
+              : { position: 'absolute', left: 0, top: 0, width: 1, height: 1, overflow: 'hidden' }
+          }
+        >
+          {status}
+        </Text>
+      )}
     </View>
   );
 
@@ -151,7 +155,8 @@ export function SessionStage({
               icon="back"
               label={id ? 'Kembali' : 'Back'}
               onPress={() => {
-                if (router.canGoBack()) router.back();
+                if (onBack !== undefined) onBack();
+                else if (router.canGoBack()) router.back();
                 else router.replace('/');
               }}
             />

@@ -198,7 +198,7 @@ export function useDeviceTalk({ locale, mode, topic }: Options) {
   useEffect(() => {
     const listener = AppState.addEventListener('change', (next) => {
       if (next === 'background' || (next === 'inactive' && !runtime.permissionActive())) {
-        runtime.session.end();
+        runtime.session.pause();
       }
     });
     return () => {
@@ -210,7 +210,7 @@ export function useDeviceTalk({ locale, mode, topic }: Options) {
   useFocusEffect(
     useCallback(
       () => () => {
-        runtime.session.end();
+        runtime.session.pause();
       },
       [runtime],
     ),
@@ -239,6 +239,7 @@ export function useDeviceTalk({ locale, mode, topic }: Options) {
     recognitionSupported: speechRecognition.supported,
     checkAvailability,
     connect: (voice: boolean) => runtime.session.connect(voice),
+    reconnect: (voice: boolean) => runtime.session.reconnect(voice),
     startVoice: () => {
       runtime.session.startVoice();
     },
