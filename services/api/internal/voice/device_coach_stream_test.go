@@ -34,7 +34,7 @@ func writeDeviceHermesStreamReply(w http.ResponseWriter, text string) {
 func TestDeviceHermesStreamRequiresCompleteBoundedReply(t *testing.T) {
 	text := `{"text":"Halo. Apa yang ingin kamu jelaskan?","animation":"wave","panel":null}`
 	result, err := readDeviceHermesStream(context.Background(), strings.NewReader(deviceStreamReply(text)))
-	if err != nil || result.Text != text || result.InputTokens != 30 || result.OutputTokens != 20 {
+	if err != nil || result.Text != text || result.InputTokens != 30 || result.OutputTokens != 20 || result.FirstContentAt.IsZero() {
 		t.Fatalf("valid device stream failed: %+v, %v", result, err)
 	}
 	for _, test := range []struct {

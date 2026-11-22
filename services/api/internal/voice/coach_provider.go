@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 type coachCompletion struct {
 	Text                      string
 	InputTokens, OutputTokens int
+	FirstContentAt            time.Time
 }
 
 type hermesMessage struct {

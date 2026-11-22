@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -108,6 +109,9 @@ func readDeviceHermesStream(ctx context.Context, body io.Reader) (coachCompletio
 				data.Reset()
 				if err != nil {
 					return coachCompletion{}, err
+				}
+				if state.result.FirstContentAt.IsZero() && state.result.Text != "" {
+					state.result.FirstContentAt = time.Now()
 				}
 				if done {
 					return state.result, nil

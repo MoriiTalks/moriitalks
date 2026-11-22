@@ -3,6 +3,7 @@ package voice
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"regexp"
 	"time"
@@ -44,6 +45,18 @@ func (s *session) limits() Limits {
 
 type deviceHarnessCoach struct{ cloud *cloudProviders }
 
+const moriiDeviceIndonesian = `
+Untuk sesi Bahasa Indonesia, jadilah Morii yang hangat, lincah, dan mudah diikuti anak SMP.
+Tanggapi inti ucapan terbaru dengan aku dan kamu. Jika pengguna mengoreksi fakta, ingat versi terbarunya.
+Jika ada bagian yang kurang jelas, sebutkan bagian itu dan minta diulang dengan singkat.
+Kalau pengguna ingin berlatih, beri satu tantangan kecil yang relevan: sebutkan ide, alasan, lalu satu contoh bila perlu.
+Ambil satu bagian nyata dari jawabannya untuk memberi saran yang bisa langsung dicoba lagi.
+Dalam obrolan biasa, jawab secara wajar. Pakai pertanyaan atau panel hanya jika membantu.
+Jika suatu giliran latihan memakai format "Latihan: ... Ucapanku: ...", nilai hanya bagian setelah "Ucapanku:".
+Pilihan kartu adalah konteks, bukan bukti bahwa pengguna mengucapkannya.
+Jika diminta menampilkan dua kartu latihan yang sudah disebutkan, pertahankan label dan urutannya.
+`
+
 func newDeviceHarnessCoach(config Config) *deviceHarnessCoach {
 	cloud := newCloudProviders(config)
 	// Hermes can complete a bounded reply more slowly than cloud speech providers.
@@ -75,7 +88,13 @@ func (p *deviceHarnessCoach) RespondHarness(ctx context.Context, input harnessIn
 	if err != nil {
 		return harnessReply{}, errProvider
 	}
-	completion, err := p.cloud.completeDeviceHermesStream(ctx, newHarnessRequest(string(encoded), p.cloud.config))
+	request := newHarnessRequest(string(encoded), p.cloud.config)
+	if input.Language == "id" {
+		request.Instructions += moriiDeviceIndonesian
+	}
+	started := time.Now()
+	completion, err := p.cloud.completeDeviceHermesStream(ctx, request)
+	streamDone := time.Now()
 	if err != nil {
 		return harnessReply{}, err
 	}
@@ -95,6 +114,8 @@ func (p *deviceHarnessCoach) RespondHarness(ctx context.Context, input harnessIn
 		}
 	}
 	result.InputTokens, result.OutputTokens = completion.InputTokens, completion.OutputTokens
+	log.Printf("morii_hermes first_content_ms=%d stream_complete_ms=%d validated_ms=%d",
+		completion.FirstContentAt.Sub(started).Milliseconds(), streamDone.Sub(started).Milliseconds(), time.Since(started).Milliseconds())
 	return result, nil
 }
 
